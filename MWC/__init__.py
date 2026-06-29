@@ -53,12 +53,12 @@ from .translation import t
 from .utils import (
     HAS_BLENDER,
     clean_curve_mapping_node,
+    get_armature_object,
     get_cache_filepath,
     get_curve_mapping_node,
     load_mbs_from_npz,
     save_mbs_to_npz,
     triangles_intersect,
-    get_armature_object,
 )
 from .visualization import (
     create_blender_metaballs,
@@ -597,7 +597,7 @@ class MWC17_PT_Creation(PanelBase):
     bl_idname = "MWC17_PT_Creation"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.7'
+    bl_category = 'MWC 1.0'
     bl_parent_id = "MWC17_PT_MainPanel"
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -650,7 +650,7 @@ class MWC17_PT_Visualization(PanelBase):
     bl_idname = "MWC17_PT_Visualization"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.7'
+    bl_category = 'MWC 1.0'
     bl_parent_id = "MWC17_PT_MainPanel"
     bl_options = {'DEFAULT_CLOSED'}
 
