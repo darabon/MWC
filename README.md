@@ -75,9 +75,9 @@ Displays the properties of the currently selected metaball object from the MWC_M
 - **Save to Cache**: Overwrites the .npz cache file with the current positions, scales, and bone weights of the edited viewport spheres.
 ![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAnEAAAACCAYAAAA3pIp+AAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAANUlEQVR4nO3OQQmAABRAsSd49m4v6wg/pwmMYQVvImwJtszMXp0BAPAX91pt1fH1BACA164Hoq8EQMMPmF8AAAAASUVORK5CYII=)
 
-https://github.com/darabon/MWC/blob/main/images/demo.mp4
+https://github.com/darabon/MWC/blob/main/images/gloves-prev.mp4
 
-https://github.com/darabon/MWC/blob/main/images/demo2.mp4
+https://github.com/darabon/MWC/blob/main/images/hand-prev.mp4
 
 **Русская версия**
 **Metaball Weight Container (MWC)** — это инструмент для Blender, созданный для точного и быстрого переноса весов оснастки (rigging weights) с персонажа на одежду, аксессуары, обувь и другие сопутствующие объекты.
