@@ -58,6 +58,7 @@ from .utils import (
     load_mbs_from_npz,
     save_mbs_to_npz,
     triangles_intersect,
+    get_armature_object,
 )
 from .visualization import (
     create_blender_metaballs,
@@ -100,8 +101,8 @@ def get_active_bone_name(context):
             if vg:
                 return vg.name
 
-    # 2. Fallback to Armature specified in scene
-    arm_obj = getattr(scene, "mwc_armature", None)
+    # 2. Fallback to Armature specified in scene or auto-detected
+    arm_obj = get_armature_object(scene, context)
     if arm_obj and arm_obj.type == 'ARMATURE':
         if arm_obj.mode == 'POSE' and arm_obj.pose and arm_obj.pose.active_bone:
             return arm_obj.pose.active_bone.name
@@ -330,7 +331,7 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
             merge_factor = scene.mwc_merge_factor
 
             use_joint_scaling = scene.mwc_use_joint_scaling
-            armature_obj = scene.mwc_armature
+            armature_obj = get_armature_object(scene, context)
             joint_scale = scene.mwc_joint_scale
             middle_scale = scene.mwc_middle_scale
 

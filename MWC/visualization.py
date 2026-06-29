@@ -17,7 +17,8 @@ except ImportError:
 from .translation import t
 from .utils import (
     load_mbs_from_npz,
-    save_mbs_to_npz
+    save_mbs_to_npz,
+    get_armature_object
 )
 
 # Global variables for caching and drawing
@@ -139,7 +140,7 @@ def draw_callback_px():
     if color_by_bone:
         from .__init__ import get_active_bone_name
         active_bone = get_active_bone_name(context)
-    arm_obj = getattr(scene, "mwc_armature", None)
+    arm_obj = get_armature_object(scene, context)
         
     solid_batch, wire_batch = get_sphere_batches()
     if not solid_batch or not wire_batch:
@@ -168,6 +169,11 @@ def draw_callback_px():
     shader_solid.bind()
     loc_mvp_solid = shader_solid.uniform_from_name("ModelViewProjectionMatrix")
     
+    try:
+        depsgraph = context.evaluated_depsgraph_get()
+    except Exception:
+        depsgraph = None
+
     for idx, mb in enumerate(mbs):
         is_selected = False
         if active_mb_name:
@@ -194,20 +200,35 @@ def draw_callback_px():
         if mbs is _scene_mbs:
             obj = bpy.data.objects.get(mb.get('name', ''))
             if obj:
-                co_world = obj.matrix_world.to_translation()
+                if depsgraph:
+                    try:
+                        eval_obj = obj.evaluated_get(depsgraph)
+                        co_world = eval_obj.matrix_world.to_translation()
+                    except Exception:
+                        co_world = obj.matrix_world.to_translation()
+                else:
+                    co_world = obj.matrix_world.to_translation()
                 co = (co_world.x, co_world.y, co_world.z)
                 if obj.data and hasattr(obj.data, 'elements') and len(obj.data.elements) > 0:
                     radius = obj.data.elements[0].radius * obj.scale.x
         elif mbs is _cached_mbs and arm_obj and arm_obj.type == 'ARMATURE':
             p_bone = mb.get('parent_bone', '')
             co_loc = mb.get('co_local')
-            if p_bone and co_loc and p_bone in arm_obj.pose.bones:
-                pose_bone = arm_obj.pose.bones[p_bone]
+            if depsgraph:
+                try:
+                    eval_arm = arm_obj.evaluated_get(depsgraph)
+                except Exception:
+                    eval_arm = arm_obj
+            else:
+                eval_arm = arm_obj
+                
+            if p_bone and co_loc and p_bone in eval_arm.pose.bones:
+                pose_bone = eval_arm.pose.bones[p_bone]
                 local_vec = mathutils.Vector(co_loc)
-                co_world = arm_obj.matrix_world @ (pose_bone.matrix @ local_vec)
+                co_world = eval_arm.matrix_world @ (pose_bone.matrix @ local_vec)
                 co = (co_world.x, co_world.y, co_world.z)
         
-        if is_selected:
+        if is_selected and mbs is _cached_mbs:
             # Allow editing override coords
             try:
                 co = (scene.mwc_selected_mb_x, scene.mwc_selected_mb_y, scene.mwc_selected_mb_z)
@@ -253,25 +274,41 @@ def draw_callback_px():
         if mbs is _scene_mbs:
             obj = bpy.data.objects.get(mb.get('name', ''))
             if obj:
-                co_world = obj.matrix_world.to_translation()
+                if depsgraph:
+                    try:
+                        eval_obj = obj.evaluated_get(depsgraph)
+                        co_world = eval_obj.matrix_world.to_translation()
+                    except Exception:
+                        co_world = obj.matrix_world.to_translation()
+                else:
+                    co_world = obj.matrix_world.to_translation()
                 co = (co_world.x, co_world.y, co_world.z)
                 if obj.data and hasattr(obj.data, 'elements') and len(obj.data.elements) > 0:
                     radius = obj.data.elements[0].radius * obj.scale.x
         elif mbs is _cached_mbs and arm_obj and arm_obj.type == 'ARMATURE':
             p_bone = mb.get('parent_bone', '')
             co_loc = mb.get('co_local')
-            if p_bone and co_loc and p_bone in arm_obj.pose.bones:
-                pose_bone = arm_obj.pose.bones[p_bone]
+            if depsgraph:
+                try:
+                    eval_arm = arm_obj.evaluated_get(depsgraph)
+                except Exception:
+                    eval_arm = arm_obj
+            else:
+                eval_arm = arm_obj
+                
+            if p_bone and co_loc and p_bone in eval_arm.pose.bones:
+                pose_bone = eval_arm.pose.bones[p_bone]
                 local_vec = mathutils.Vector(co_loc)
-                co_world = arm_obj.matrix_world @ (pose_bone.matrix @ local_vec)
+                co_world = eval_arm.matrix_world @ (pose_bone.matrix @ local_vec)
                 co = (co_world.x, co_world.y, co_world.z)
         
-        # Allow editing override coords
-        try:
-            co = (scene.mwc_selected_mb_x, scene.mwc_selected_mb_y, scene.mwc_selected_mb_z)
-            radius = scene.mwc_selected_mb_radius
-        except:
-            pass
+        if mbs is _cached_mbs:
+            # Allow editing override coords
+            try:
+                co = (scene.mwc_selected_mb_x, scene.mwc_selected_mb_y, scene.mwc_selected_mb_z)
+                radius = scene.mwc_selected_mb_radius
+            except:
+                pass
             
         gpu.state.line_width_set(3.0)
         color = (1.0, 0.8, 0.0, 1.0)
@@ -402,7 +439,7 @@ def create_blender_metaballs(original_mbs, virtual_mbs, source_obj_name):
         col.objects.link(obj)
         
         # Parent to armature bone if active armature and dominant bone exist
-        arm_obj = bpy.context.scene.mwc_armature
+        arm_obj = get_armature_object(bpy.context.scene)
         parented = False
         if arm_obj and arm_obj.type == 'ARMATURE' and weights:
             dominant_bone = max(weights.items(), key=lambda item: item[1])[0]

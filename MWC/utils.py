@@ -59,13 +59,7 @@ def save_mbs_to_npz(mbs, alpha, n, q, tau, r_falloff_coeff):
     
     arm_obj = None
     if HAS_BLENDER:
-        try:
-            arm_obj = bpy.context.scene.mwc_armature
-        except Exception:
-            try:
-                arm_obj = bpy.data.scenes[0].mwc_armature
-            except Exception:
-                pass
+        arm_obj = get_armature_object()
         
     for mb in mbs:
         co_world = mathutils.Vector(mb['co'])
@@ -122,13 +116,7 @@ def load_mbs_from_npz():
         
         arm_obj = None
         if HAS_BLENDER:
-            try:
-                arm_obj = bpy.context.scene.mwc_armature
-            except Exception:
-                try:
-                    arm_obj = bpy.data.scenes[0].mwc_armature
-                except Exception:
-                    pass
+            arm_obj = get_armature_object()
             
         mbs = []
         M = len(co)
@@ -326,3 +314,79 @@ def clean_curve_mapping_node():
     tree_name = ".hidden_mwc_curve_tree"
     if tree_name in bpy.data.node_groups:
         bpy.data.node_groups.remove(bpy.data.node_groups[tree_name])
+
+
+def get_armature_object(scene=None, context=None):
+    if not HAS_BLENDER:
+        return None
+        
+    # Resolve scene if not provided or restricted
+    if scene is None:
+        try:
+            scene = bpy.context.scene
+        except AttributeError:
+            pass
+            
+    if scene is None:
+        try:
+            if len(bpy.data.scenes) > 0:
+                scene = bpy.data.scenes[0]
+        except Exception:
+            pass
+            
+    if scene is None:
+        # Fallback to bpy.data.objects if scene is completely unavailable
+        try:
+            for obj in bpy.data.objects:
+                if obj.type == 'ARMATURE':
+                    return obj
+        except Exception:
+            pass
+        return None
+
+    # 1. Try specified scene armature
+    try:
+        arm_obj = getattr(scene, "mwc_armature", None)
+        if arm_obj and arm_obj.type == 'ARMATURE':
+            return arm_obj
+    except Exception:
+        pass
+        
+    # 2. Try source object's armature modifier
+    try:
+        src_obj = getattr(scene, "mwc_source_obj", None)
+        if src_obj and src_obj.type == 'MESH':
+            for mod in src_obj.modifiers:
+                if mod.type == 'ARMATURE' and mod.object:
+                    return mod.object
+    except Exception:
+        pass
+                
+    # 3. Try active object's armature modifier
+    if context:
+        try:
+            act_obj = context.active_object
+            if act_obj and act_obj.type == 'MESH':
+                for mod in act_obj.modifiers:
+                    if mod.type == 'ARMATURE' and mod.object:
+                        return mod.object
+        except Exception:
+            pass
+                    
+    # 4. Fallback to any armature in the scene
+    try:
+        for obj in scene.objects:
+            if obj.type == 'ARMATURE':
+                return obj
+    except Exception:
+        pass
+            
+    # 5. Last fallback to bpy.data.objects
+    try:
+        for obj in bpy.data.objects:
+            if obj.type == 'ARMATURE':
+                return obj
+    except Exception:
+        pass
+            
+    return None
