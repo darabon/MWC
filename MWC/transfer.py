@@ -9,7 +9,6 @@ except ImportError:
     HAS_BLENDER = False
 
 # Import utilities
-from .translation import t
 from .utils import get_curve_mapping_node
 
 

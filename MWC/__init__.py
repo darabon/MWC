@@ -73,12 +73,10 @@ from .visualization import (
 
 # Dummy classes to prevent class registration errors in subprocesses
 if HAS_BLENDER:
-    PreferencesBase = bpy.types.AddonPreferences
     OperatorBase = bpy.types.Operator
     PanelBase = bpy.types.Panel
     PropertyGroupBase = bpy.types.PropertyGroup
 else:
-    class PreferencesBase: pass
     class OperatorBase: pass
     class PanelBase: pass
     class PropertyGroupBase: pass
@@ -126,24 +124,6 @@ def get_active_bone_name(context):
     return ""
 
 
-class MWC17_AddonPreferences(PreferencesBase):
-    bl_idname = "mwc_addon"
-
-    language: bpy.props.EnumProperty(
-        items=[
-            ('EN', "English", "Use English language for UI"),
-            ('RU', "Русский", "Использовать русский язык для интерфейса")
-        ],
-        default='EN',
-        name="Language / Язык",
-        description="Choose language for the addon / Выберите язык для аддона"
-    )
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "language")
-
-
 def sync_cache_properties(scene):
     filepath = get_cache_filepath()
     if not os.path.exists(filepath):
@@ -166,7 +146,7 @@ def sync_cache_properties(scene):
 
 class MWC17_OT_ClearCache(OperatorBase):
     bl_idname = "mwc17.clear_cache"
-    bl_label = "Clear Cache / Очистить кэш"
+    bl_label = "Clear Cache"
     bl_description = "Delete the saved metaballs cache file"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -175,7 +155,7 @@ class MWC17_OT_ClearCache(OperatorBase):
         if os.path.exists(filepath):
             try:
                 os.remove(filepath)
-                self.report({'INFO'}, t("info_cache_cleared"))
+                self.report({'INFO'}, t("Cache successfully cleared."))
             except Exception as e:
                 self.report({'ERROR'}, f"Failed to delete cache: {e}")
         else:
@@ -209,7 +189,7 @@ class MWC17_OT_ClearCache(OperatorBase):
 
 class MWC17_OT_SpawnViewportMetaballs(OperatorBase):
     bl_idname = "mwc17.spawn_viewport_metaballs"
-    bl_label = "Spawn Viewport Metaballs / Показать во вьюпорте"
+    bl_label = "Spawn Viewport Metaballs"
     bl_description = "Spawn metaballs from cache as actual scene objects for viewport editing"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -220,7 +200,7 @@ class MWC17_OT_SpawnViewportMetaballs(OperatorBase):
         scene = context.scene
         loaded = load_mbs_from_npz()
         if not loaded:
-            self.report({'ERROR'}, t("err_empty_collection"))
+            self.report({'ERROR'}, t("Metaball collection MWC_Metaballs is empty or not found!"))
             return {'CANCELLED'}
 
         mbs, meta = loaded
@@ -241,13 +221,13 @@ class MWC17_OT_SpawnViewportMetaballs(OperatorBase):
         visualization._scene_mbs_dirty = True
 
         tag_redraw_all_views(self, context)
-        self.report({'INFO'}, t("info_viewport_spawned", len(mbs)))
+        self.report({'INFO'}, t("Successfully spawned {} metaball objects in the viewport.", len(mbs)))
         return {'FINISHED'}
 
 
 class MWC17_OT_ClearViewportMetaballs(OperatorBase):
     bl_idname = "mwc17.clear_viewport_metaballs"
-    bl_label = "Clear Viewport Metaballs / Убрать из вьюпорта"
+    bl_label = "Clear Viewport Metaballs"
     bl_description = "Remove metaball objects from the scene viewport without deleting the cache file"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -270,16 +250,13 @@ class MWC17_OT_ClearViewportMetaballs(OperatorBase):
         scene.mwc_selected_mb_weights.clear()
 
         tag_redraw_all_views(self, context)
-        self.report({'INFO'}, t("info_viewport_cleared"))
+        self.report({'INFO'}, t("Viewport metaballs cleared."))
         return {'FINISHED'}
-
-
-
 
 
 class MWC17_OT_CreateMetaballs(OperatorBase):
     bl_idname = "mwc17.create_metaballs"
-    bl_label = "Create Metaballs / Создать метаболы"
+    bl_label = "Create Metaballs"
     bl_description = "Generate metaballs from vertex weights of the source mesh and save to cache"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -291,11 +268,11 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
         src_obj = scene.mwc_source_obj
 
         if not src_obj:
-            self.report({'ERROR'}, t("err_select_source"))
+            self.report({'ERROR'}, t("Please select the source object!"))
             return {'CANCELLED'}
 
         if src_obj.type != 'MESH':
-            self.report({'ERROR'}, t("err_source_must_mesh"))
+            self.report({'ERROR'}, t("Source object must be a mesh!"))
             return {'CANCELLED'}
 
         alpha = scene.mwc_alpha
@@ -347,13 +324,13 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
         load_cached_mbs_from_file()
         tag_redraw_all_views(self, context)
 
-        self.report({'INFO'}, t("info_created_metaballs", len(all_mbs)))
+        self.report({'INFO'}, t("Successfully created {} metaballs.", len(all_mbs)))
         return {'FINISHED'}
 
 
 class MWC17_OT_ApplyWeights(OperatorBase):
     bl_idname = "mwc17.apply_weights"
-    bl_label = "Apply Weights / Применить веса"
+    bl_label = "Apply Weights"
     bl_description = "Bake weights from cached metaballs onto the target mesh"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -362,10 +339,10 @@ class MWC17_OT_ApplyWeights(OperatorBase):
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
-        col.label(text=t("self_intersection_warning"), icon="ERROR")
-        col.label(text=t("self_intersection_details"))
+        col.label(text=t("Warning: Object contains self-intersecting geometry!"), icon="ERROR")
+        col.label(text=t("This can lead to weight distribution instability."))
         col.separator()
-        col.label(text=t("self_intersection_ask"))
+        col.label(text=t("Do you really want to continue?"))
 
     def invoke(self, context, event):
         if self.confirmed:
@@ -375,11 +352,11 @@ class MWC17_OT_ApplyWeights(OperatorBase):
         target_obj = scene.mwc_target_obj
 
         if not target_obj:
-            self.report({'ERROR'}, t("err_select_target"))
+            self.report({'ERROR'}, t("Please select the target object!"))
             return {'CANCELLED'}
 
         if target_obj.type != 'MESH':
-            self.report({'ERROR'}, t("err_target_must_mesh"))
+            self.report({'ERROR'}, t("Target object must be a mesh!"))
             return {'CANCELLED'}
 
         # Check self-intersection
@@ -451,11 +428,11 @@ class MWC17_OT_ApplyWeights(OperatorBase):
         target_obj = scene.mwc_target_obj
 
         if not target_obj:
-            self.report({'ERROR'}, t("err_select_target"))
+            self.report({'ERROR'}, t("Please select the target object!"))
             return {'CANCELLED'}
 
         if target_obj.type != 'MESH':
-            self.report({'ERROR'}, t("err_target_must_mesh"))
+            self.report({'ERROR'}, t("Target object must be a mesh!"))
             return {'CANCELLED'}
 
         # Try extracting metaballs from scene collection first
@@ -475,7 +452,7 @@ class MWC17_OT_ApplyWeights(OperatorBase):
             # Fallback to cache NPZ
             loaded = load_mbs_from_npz()
             if not loaded:
-                self.report({'ERROR'}, t("err_empty_collection"))
+                self.report({'ERROR'}, t("Metaball collection MWC_Metaballs is empty or not found!"))
                 return {'CANCELLED'}
             mbs, meta = loaded
 
@@ -509,7 +486,7 @@ class MWC17_OT_ApplyWeights(OperatorBase):
             geodesic_mode=geodesic_mode
         )
 
-        self.report({'INFO'}, t("info_weights_applied"))
+        self.report({'INFO'}, t("Weights successfully applied to target mesh."))
         return {'FINISHED'}
 
 
@@ -532,15 +509,15 @@ class MWC17_PT_MainPanel(PanelBase):
                 sync_cache_properties(scene)
 
             if scene.mwc_cache_exists:
-                box_cache.label(text=t("cache_loaded", scene.mwc_cache_count, f"{scene.mwc_cache_alpha:.2f}"), icon="FILE_TICK")
+                box_cache.label(text=t("Loaded {} metaballs (Alpha: {})", scene.mwc_cache_count, f"{scene.mwc_cache_alpha:.2f}"), icon="FILE_TICK")
             else:
-                box_cache.label(text=t("cache_status") + " " + t("cache_empty"), icon="FILE_BLANK")
-            box_cache.operator("mwc17.clear_cache", text=t("clear_cache"), icon="TRASH")
+                box_cache.label(text=t("Metaballs Cache Status:") + " " + t("Empty (Run 'Create')"), icon="FILE_BLANK")
+            box_cache.operator("mwc17.clear_cache", text=t("Clear Cache"), icon="TRASH")
         else:
             scene.mwc_cache_exists = False
             scene.mwc_cache_count = 0
             scene.mwc_cache_alpha = 0.0
-            box_cache.label(text=t("cache_status") + " " + t("cache_empty"), icon="FILE_BLANK")
+            box_cache.label(text=t("Metaballs Cache Status:") + " " + t("Empty (Run 'Create')"), icon="FILE_BLANK")
 
 
 class MWC17_PT_Creation(PanelBase):
@@ -557,39 +534,39 @@ class MWC17_PT_Creation(PanelBase):
         scene = context.scene
 
         # 1. Source selection
-        layout.label(text=t("source_data"))
-        layout.prop(scene, "mwc_source_obj", text=t("source_mesh"))
+        layout.label(text="Source Data (Creation):")
+        layout.prop(scene, "mwc_source_obj", text="Source Mesh")
 
         # 2. Parameters block
         box = layout.box()
-        box.label(text=t("creation_params"))
-        box.prop(scene, "mwc_alpha", text=t("alpha"))
-        box.prop(scene, "mwc_subdivision_k", text=t("subdivision_k"))
-        box.prop(scene, "mwc_merge_close", text=t("merge_close"))
+        box.label(text="Creation Parameters:")
+        box.prop(scene, "mwc_alpha", text="Alpha")
+        box.prop(scene, "mwc_subdivision_k", text="Subdivision K")
+        box.prop(scene, "mwc_merge_close", text="Merge Close")
         sub_merge = box.column()
         sub_merge.active = scene.mwc_merge_close
-        sub_merge.prop(scene, "mwc_merge_factor", text=t("merge_factor"))
+        sub_merge.prop(scene, "mwc_merge_factor", text="Merge Factor")
 
         # Joint-Aware Scaling controls
-        box.prop(scene, "mwc_use_joint_scaling", text=t("use_joint_scaling"))
+        box.prop(scene, "mwc_use_joint_scaling", text="Use Joint Scaling")
         sub_joint = box.column()
         sub_joint.active = scene.mwc_use_joint_scaling
-        sub_joint.prop(scene, "mwc_armature", text=t("armature"))
-        sub_joint.prop(scene, "mwc_joint_scale", text=t("joint_scale"))
-        sub_joint.prop(scene, "mwc_middle_scale", text=t("middle_scale"))
+        sub_joint.prop(scene, "mwc_armature", text="Armature")
+        sub_joint.prop(scene, "mwc_joint_scale", text="Joint Scale Factor")
+        sub_joint.prop(scene, "mwc_middle_scale", text="Middle Scale Factor")
 
         # Thickness-Aware Scaling controls
-        box.prop(scene, "mwc_use_thickness_scaling", text=t("use_thickness_scaling"))
+        box.prop(scene, "mwc_use_thickness_scaling", text="Use Thickness Scaling")
         sub_thick = box.column()
         sub_thick.active = scene.mwc_use_thickness_scaling
-        sub_thick.prop(scene, "mwc_thickness_factor", text=t("thickness_factor"))
+        sub_thick.prop(scene, "mwc_thickness_factor", text="Thickness Factor")
 
         # 4. Enum list creation type
-        layout.prop(scene, "mwc_creation_type", text=t("grouping"))
-        layout.prop(scene, "mwc_symmetry", text=t("symmetry"))
+        layout.prop(scene, "mwc_creation_type", text="Grouping")
+        layout.prop(scene, "mwc_symmetry", text="Symmetry")
 
         # 5. Create button
-        layout.operator("mwc17.create_metaballs", text=t("create"), icon="META_BALL")
+        layout.operator("mwc17.create_metaballs", text="Create", icon="META_BALL")
 
 
 class MWC17_PT_Visualization(PanelBase):
@@ -607,18 +584,18 @@ class MWC17_PT_Visualization(PanelBase):
 
         # Spawn/Clear viewport metaballs
         row_spawn = layout.row(align=True)
-        row_spawn.operator("mwc17.spawn_viewport_metaballs", text=t("spawn_viewport"), icon="META_BALL")
-        row_spawn.operator("mwc17.clear_viewport_metaballs", text=t("clear_viewport"), icon="X")
+        row_spawn.operator("mwc17.spawn_viewport_metaballs", text="Spawn Viewport Metaballs", icon="META_BALL")
+        row_spawn.operator("mwc17.clear_viewport_metaballs", text="Clear Viewport Metaballs", icon="X")
 
         # Viewport Preview controls
         box_view = layout.box()
-        box_view.label(text=t("viewport_preview"), icon="VIEW3D")
-        box_view.prop(scene, "mwc_show_viewport_preview", text=t("show_preview"))
-        box_view.operator("mwc17.select_nearest_mb", text=t("select_nearest"), icon="CURSOR")
+        box_view.label(text="Viewport Preview", icon="VIEW3D")
+        box_view.prop(scene, "mwc_show_viewport_preview", text="Show Preview")
+        box_view.operator("mwc17.select_nearest_mb", text="Select Nearest", icon="CURSOR")
 
         sub_preview = box_view.column()
         sub_preview.active = scene.mwc_show_viewport_preview
-        sub_preview.prop(scene, "mwc_color_by_active_bone", text=t("color_active_bone"))
+        sub_preview.prop(scene, "mwc_color_by_active_bone", text="Color by Active Bone")
 
         # Active Metaball Editor
         active_obj = context.active_object
@@ -629,25 +606,25 @@ class MWC17_PT_Visualization(PanelBase):
             is_mwc_mb = True
 
         box_edit = layout.box()
-        box_edit.label(text=t("active_mb_editor"), icon="EDITMODE_HLT")
+        box_edit.label(text="Active Metaball Editor", icon="EDITMODE_HLT")
 
         # Add a button to spawn a new metaball
-        box_edit.operator("mwc17.add_active_mb", text=t("add_metaball"), icon="ADD")
+        box_edit.operator("mwc17.add_active_mb", text="Add Metaball", icon="ADD")
 
         if is_mwc_mb:
             box_edit.label(text=f"Object: {active_obj.name}")
 
             # Snap to cursor button
-            box_edit.operator("mwc17.snap_active_mb_to_cursor", text=t("snap_to_cursor"), icon="CURSOR")
+            box_edit.operator("mwc17.snap_active_mb_to_cursor", text="Snap to Cursor", icon="CURSOR")
 
             # Native Radius slider of the metaball element
             if active_obj.data.elements:
                 element = active_obj.data.elements[0]
-                box_edit.prop(element, "radius", text=t("alpha"))
+                box_edit.prop(element, "radius", text="Alpha")
 
             # Bone weights list
             box_weights = box_edit.box()
-            box_weights.label(text=t("bone_weights"), icon="BONE_DATA")
+            box_weights.label(text="Bone Weights", icon="BONE_DATA")
 
             # Read custom properties representing bone weights
             exclude_keys = {"weights", "normal", "family_id", "radius", "alpha", "n", "q", "tau", "R_falloff", "is_virtual", "symmetry_class", "_RNA_UI"}
@@ -669,7 +646,7 @@ class MWC17_PT_Visualization(PanelBase):
             op_add.bone_name = scene.mwc_new_bone_name
 
             # Save/sync cache button
-            box_edit.operator("mwc17.save_collection_to_cache", text=t("save_to_cache"), icon="FILE_TICK")
+            box_edit.operator("mwc17.save_collection_to_cache", text="Save to Cache", icon="FILE_TICK")
         else:
             box_edit.label(text="Select a metaball in the viewport to edit it", icon="INFO")
 
@@ -688,19 +665,19 @@ class MWC17_PT_Transfer(PanelBase):
         scene = context.scene
 
         # Target selection
-        layout.label(text=t("weight_apply"))
-        layout.prop(scene, "mwc_target_obj", text=t("target_mesh"))
+        layout.label(text="Weight Application:")
+        layout.prop(scene, "mwc_target_obj", text="Target Mesh")
 
         # Normal filter and transfer settings block
         box_apply = layout.box()
-        box_apply.label(text=t("transfer_params"))
+        box_apply.label(text="Transfer Parameters:")
 
         box_transfer = box_apply.box()
         sub_transfer = box_transfer.column()
-        sub_transfer.prop(scene, "mwc_use_geodesic", text=t("use_geodesic"))
+        sub_transfer.prop(scene, "mwc_use_geodesic", text="Geodesic Distance")
         if scene.mwc_use_geodesic:
-            sub_transfer.prop(scene, "mwc_geodesic_mode", text=t("geodesic_mode"))
-        sub_transfer.prop(scene, "mwc_use_custom_curve", text=t("use_custom_curve"))
+            sub_transfer.prop(scene, "mwc_geodesic_mode", text="Geodesic Performance Mode")
+        sub_transfer.prop(scene, "mwc_use_custom_curve", text="Custom Falloff Curve")
 
         if scene.mwc_use_custom_curve:
             node = get_curve_mapping_node(create=False)
@@ -709,31 +686,31 @@ class MWC17_PT_Transfer(PanelBase):
             else:
                 sub_transfer.operator("mwc17.init_curve", text="Initialize Curve", icon="NODETREE")
         else:
-            sub_transfer.prop(scene, "mwc_n", text=t("wyvill_n"))
+            sub_transfer.prop(scene, "mwc_n", text="Wyvill Exponent (n)")
 
-        sub_transfer.prop(scene, "mwc_q", text=t("mixing_q"))
-        sub_transfer.prop(scene, "mwc_tau", text=t("threshold_tau"))
-        sub_transfer.prop(scene, "mwc_r_falloff_coeff", text=t("r_falloff"))
+        sub_transfer.prop(scene, "mwc_q", text="Mixing Exponent (q)")
+        sub_transfer.prop(scene, "mwc_tau", text="Threshold (tau)")
+        sub_transfer.prop(scene, "mwc_r_falloff_coeff", text="R Falloff Coeff")
 
-        box_apply.prop(scene, "mwc_use_normal_filter", text=t("normal_filter"))
+        box_apply.prop(scene, "mwc_use_normal_filter", text="Normal Filter")
         sub_col = box_apply.column()
         sub_col.active = scene.mwc_use_normal_filter
-        sub_col.prop(scene, "mwc_normal_filter_p", text=t("strictness_p"))
+        sub_col.prop(scene, "mwc_normal_filter_p", text="Strictness (p)")
 
-        box_apply.prop(scene, "mwc_use_smoothing", text=t("smoothing"))
+        box_apply.prop(scene, "mwc_use_smoothing", text="Smoothing")
         sub_smooth = box_apply.column()
         sub_smooth.active = scene.mwc_use_smoothing
-        sub_smooth.prop(scene, "mwc_smoothing_strength", text=t("smoothing_strength"))
-        sub_smooth.prop(scene, "mwc_smoothing_iterations", text=t("smoothing_iterations"))
+        sub_smooth.prop(scene, "mwc_smoothing_strength", text="Smoothing Strength")
+        sub_smooth.prop(scene, "mwc_smoothing_iterations", text="Iterations")
 
         # 7. Apply button
-        layout.operator("mwc17.apply_weights", text=t("apply"), icon="MOD_SKIN")
+        layout.operator("mwc17.apply_weights", text="Apply", icon="MOD_SKIN")
 
 
 def get_creation_type_items(self, context):
     return [
-        ('SINGLE', t('single_object'), t('desc_single_object')),
-        ('MULTIPLY', t('multiply_object'), t('desc_multiply_object'))
+        ('SINGLE', "Single Object", "All metaballs belong to one group/family"),
+        ('MULTIPLY', "Multiple Objects", "Separate metaballs into families based on geometry islands")
     ]
 
 
@@ -812,7 +789,7 @@ class MWC17_OT_SelectNearestMB(OperatorBase):
 
 class MWC17_OT_AddActiveMB(OperatorBase):
     bl_idname = "mwc17.add_active_mb"
-    bl_label = "Add Metaball / Добавить метабол"
+    bl_label = "Add Metaball"
     bl_description = "Create a new metaball at the 3D Cursor location"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -864,7 +841,7 @@ class MWC17_OT_AddActiveMB(OperatorBase):
 
 class MWC17_OT_AddActiveMBWeight(OperatorBase):
     bl_idname = "mwc17.add_active_mb_weight"
-    bl_label = "Add Bone Weight / Добавить вес кости"
+    bl_label = "Add Bone Weight"
     bl_description = "Add a new bone weight custom property to the active metaball"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -890,7 +867,7 @@ class MWC17_OT_AddActiveMBWeight(OperatorBase):
 
 class MWC17_OT_RemoveActiveMBWeight(OperatorBase):
     bl_idname = "mwc17.remove_active_mb_weight"
-    bl_label = "Remove Bone Weight / Удалить вес кости"
+    bl_label = "Remove Bone Weight"
     bl_description = "Remove this bone weight custom property"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -912,7 +889,7 @@ class MWC17_OT_RemoveActiveMBWeight(OperatorBase):
 
 class MWC17_OT_SnapActiveMBToCursor(OperatorBase):
     bl_idname = "mwc17.snap_active_mb_to_cursor"
-    bl_label = "Snap Active to Cursor / Снап активного к курсору"
+    bl_label = "Snap Active to Cursor"
     bl_description = "Move active metaball to the 3D Cursor location"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -932,7 +909,7 @@ class MWC17_OT_SnapActiveMBToCursor(OperatorBase):
 
 class MWC17_OT_SaveCollectionToCache(OperatorBase):
     bl_idname = "mwc17.save_collection_to_cache"
-    bl_label = "Save Metaballs to Cache / Сохранить метаболы в кэш"
+    bl_label = "Save Metaballs to Cache"
     bl_description = "Save current scene metaballs back to the .npz cache file"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -947,7 +924,6 @@ class MWC17_OT_SaveCollectionToCache(OperatorBase):
 
 classes = (
     MWC17_MBWeightItem,
-    MWC17_AddonPreferences,
     MWC17_OT_ClearCache,
     MWC17_OT_CreateMetaballs,
     MWC17_OT_ApplyWeights,
@@ -984,23 +960,28 @@ def mwc17_depsgraph_update(scene, depsgraph):
 
 
 def register():
+    # Register translations first so they are available for properties registered below
+    try:
+        from .translation import translations_dict
+        bpy.app.translations.register(__name__, translations_dict)
+    except Exception as e:
+        print("MWC translation registration failed:", e)
+
     for cls in classes:
         bpy.utils.register_class(cls)
 
     bpy.types.Scene.mwc_source_obj = bpy.props.PointerProperty(
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'MESH',
-        description=t("desc_source_mesh")
+        description="Mesh based on which metaballs with weights will be generated"
     )
-
-
 
     bpy.types.Scene.mwc_alpha = bpy.props.FloatProperty(
         name="Alpha",
         default=0.70,
         min=0.1,
         max=2.0,
-        description=t("desc_alpha")
+        description="Metaball radius coefficient"
     )
 
     bpy.types.Scene.mwc_n = bpy.props.IntProperty(
@@ -1008,7 +989,7 @@ def register():
         default=2,
         min=1,
         max=10,
-        description=t("desc_n")
+        description="Exponent n in Wyvill formula"
     )
 
     bpy.types.Scene.mwc_q = bpy.props.FloatProperty(
@@ -1016,7 +997,7 @@ def register():
         default=1.5,
         min=1.0,
         max=10.0,
-        description=t("desc_q")
+        description="Transition mixing stiffness parameter"
     )
 
     bpy.types.Scene.mwc_tau = bpy.props.FloatProperty(
@@ -1025,7 +1006,7 @@ def register():
         min=0.0001,
         max=0.1,
         precision=4,
-        description=t("desc_tau")
+        description="Threshold for cutting off small weights"
     )
 
     bpy.types.Scene.mwc_r_falloff_coeff = bpy.props.FloatProperty(
@@ -1033,7 +1014,7 @@ def register():
         default=2.5,
         min=1.0,
         max=10.0,
-        description=t("desc_r_falloff_coeff")
+        description="R_falloff radius coefficient relative to average radius"
     )
 
     bpy.types.Scene.mwc_subdivision_k = bpy.props.FloatProperty(
@@ -1041,88 +1022,86 @@ def register():
         default=2.0,
         min=1.0,
         max=10.0,
-        description=t("desc_subdivision_k")
+        description="Coefficient for local subdivision of long edges (L > K * max(R1, R2))"
     )
 
     bpy.types.Scene.mwc_merge_close = bpy.props.BoolProperty(
-        name=t("merge_close"),
+        name="Merge Close",
         default=True,
-        description=t("desc_merge_close")
+        description="Merge close metaballs with same dominant bone"
     )
 
     bpy.types.Scene.mwc_merge_factor = bpy.props.FloatProperty(
-        name=t("merge_factor"),
+        name="Merge Factor",
         default=0.5,
         min=0.1,
         max=2.0,
-        description=t("desc_merge_factor")
+        description="Merge distance coefficient (factor * (R1 + R2))"
     )
 
     bpy.types.Scene.mwc_creation_type = bpy.props.EnumProperty(
         items=get_creation_type_items,
         name="Creation Type",
-        description=t("desc_creation_type")
+        description="Whether to create a single group of metaballs or group by geometric islands"
     )
 
     bpy.types.Scene.mwc_symmetry = bpy.props.BoolProperty(
-        name=t("symmetry"),
+        name="Symmetry",
         default=False,
-        description=t("desc_symmetry")
+        description="Generate only left half of metaballs and automatically mirror to the right"
     )
 
     bpy.types.Scene.mwc_target_obj = bpy.props.PointerProperty(
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'MESH',
-        description=t("desc_target_mesh")
+        description="Target mesh onto which weights from metaballs will be projected"
     )
 
     bpy.types.Scene.mwc_use_normal_filter = bpy.props.BoolProperty(
-        name=t("use_normal_filter"),
+        name="Use Normal Filter",
         default=True,
-        description=t("desc_use_normal_filter")
+        description="Enable weight filtering by vertex normals to prevent leaks. Do not enable if the mesh has thickness (solidify)."
     )
 
     bpy.types.Scene.mwc_normal_filter_p = bpy.props.FloatProperty(
-        name=t("normal_filter_p"),
+        name="Normal Filter Exponent (p)",
         default=1.0,
         min=0.1,
         max=10.0,
-        description=t("desc_normal_filter_p")
+        description="Strictness exponent of the normal filter (higher p = stricter filtering)"
     )
 
-
-
     bpy.types.Scene.mwc_use_smoothing = bpy.props.BoolProperty(
-        name=t("use_smoothing"),
+        name="Use Smoothing",
         default=True,
-        description=t("desc_use_smoothing")
+        description="Smooth transferred weights across adjacent vertices"
     )
 
     bpy.types.Scene.mwc_smoothing_strength = bpy.props.FloatProperty(
-        name=t("smoothing_strength"),
+        name="Smoothing Strength",
         default=0.5,
         min=0.0,
         max=1.0,
-        description=t("desc_use_smoothing")
+        description="Weight smoothing strength per iteration"
     )
 
     bpy.types.Scene.mwc_smoothing_iterations = bpy.props.IntProperty(
-        name=t("smoothing_iterations"),
+        name="Smoothing Iterations",
         default=3,
         min=1,
         max=20,
-        description=t("desc_smoothing_iterations")
+        description="Number of passes (iterations) of smoothing"
     )
 
     bpy.types.Scene.mwc_use_geodesic = bpy.props.BoolProperty(
-        name=t("use_geodesic"),
+        name="Geodesic Distance",
         default=False,
-        description=t("desc_use_geodesic")
+        description="Use geodesic distance along mesh edges (Dijkstra) instead of Euclidean to prevent weight leakage"
     )
 
     bpy.types.Scene.mwc_geodesic_mode = bpy.props.EnumProperty(
-        name=t("geodesic_mode"),
-        description=t("desc_geodesic_mode"),
+        name="Geodesic Performance Mode",
+        description="Choose multi-threading/multi-processing method for Dijkstra calculation",
         items=[
             ('SEQ', "Sequential", "Sequential single-threaded calculation (safe)"),
             ('THREAD', "Thread Pool", "Parallel multi-threaded calculation (recommended, works on all OS)")
@@ -1131,9 +1110,9 @@ def register():
     )
 
     bpy.types.Scene.mwc_use_custom_curve = bpy.props.BoolProperty(
-        name=t("use_custom_curve"),
+        name="Use Custom Curve",
         default=False,
-        description=t("desc_use_custom_curve"),
+        description="Use custom Bezier curve editor for weight falloff instead of Wyvill formula",
         update=update_use_custom_curve
     )
 
@@ -1153,46 +1132,46 @@ def register():
     )
 
     bpy.types.Scene.mwc_use_joint_scaling = bpy.props.BoolProperty(
-        name=t("use_joint_scaling"),
+        name="Use Joint Scaling",
         default=False,
-        description=t("desc_use_joint_scaling")
+        description="Adapt metaball radius in joints and center of bones using armature joint positions"
     )
 
     bpy.types.Scene.mwc_armature = bpy.props.PointerProperty(
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE',
-        name=t("armature"),
-        description=t("desc_armature")
+        name="Armature",
+        description="Skeletal Armature object to retrieve joint positions from"
     )
 
     bpy.types.Scene.mwc_joint_scale = bpy.props.FloatProperty(
-        name=t("joint_scale"),
+        name="Joint Scale Factor",
         default=0.5,
         min=0.1,
         max=1.0,
-        description=t("desc_joint_scale")
+        description="Radius multiplier near joint connections"
     )
 
     bpy.types.Scene.mwc_middle_scale = bpy.props.FloatProperty(
-        name=t("middle_scale"),
+        name="Middle Scale Factor",
         default=1.2,
         min=1.0,
         max=2.0,
-        description=t("desc_middle_scale")
+        description="Radius multiplier in the middle of long bones"
     )
 
     bpy.types.Scene.mwc_use_thickness_scaling = bpy.props.BoolProperty(
-        name=t("use_thickness_scaling"),
+        name="Use Thickness Scaling",
         default=False,
-        description=t("desc_use_thickness_scaling")
+        description="Limit metaball radius to local mesh thickness via raycast to prevent leaks"
     )
 
     bpy.types.Scene.mwc_thickness_factor = bpy.props.FloatProperty(
-        name=t("thickness_factor"),
+        name="Thickness Factor",
         default=0.5,
         min=0.1,
         max=2.0,
-        description=t("desc_thickness_factor")
+        description="Clamping factor for thickness (radius = min(radius, thickness * factor))"
     )
 
     bpy.types.Scene.mwc_selected_mb_idx = bpy.props.IntProperty(
@@ -1231,12 +1210,12 @@ def register():
         default=""
     )
     bpy.types.Scene.mwc_show_viewport_preview = bpy.props.BoolProperty(
-        name=t("show_preview"),
+        name="Show Preview",
         default=False,
         update=update_viewport_preview
     )
     bpy.types.Scene.mwc_color_by_active_bone = bpy.props.BoolProperty(
-        name=t("color_active_bone"),
+        name="Color by Active Bone",
         default=False,
         update=tag_redraw_all_views
     )
@@ -1248,6 +1227,12 @@ def register():
 
 
 def unregister():
+    # Unregister translations safely
+    try:
+        bpy.app.translations.unregister(__name__)
+    except Exception as e:
+        print("MWC translation unregistration failed:", e)
+
     unregister_draw_handler()
     if HAS_BLENDER:
         if mwc17_depsgraph_update in bpy.app.handlers.depsgraph_update_post:

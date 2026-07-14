@@ -9,8 +9,6 @@ try:
 except ImportError:
     HAS_BLENDER = False
 
-# Import translation system helper
-from .translation import t
 
 def get_cache_filepath():
     return os.path.join(tempfile.gettempdir(), "mwc_metaballs_cache.npz")

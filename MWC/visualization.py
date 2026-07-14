@@ -14,7 +14,6 @@ except ImportError:
     HAS_BLENDER = False
 
 # Import utilities
-from .translation import t
 from .utils import (
     load_mbs_from_npz,
     save_mbs_to_npz,
