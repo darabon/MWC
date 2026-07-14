@@ -28,6 +28,22 @@ _draw_handler = None
 _scene_mbs = []
 _scene_mbs_dirty = True
 
+_last_active_object_name = ""
+_last_active_bone = ""
+_last_weights_hash = 0
+
+def get_weights_hash(obj):
+    if not obj:
+        return 0
+    exclude_keys = {"weights", "normal", "family_id", "radius", "alpha", "n", "q", "tau", "R_falloff", "is_virtual", "symmetry_class"}
+    weights_data = []
+    for key in obj.keys():
+        if key in exclude_keys or key.startswith("_"):
+            continue
+        val = obj[key]
+        if isinstance(val, (int, float)):
+            weights_data.append((key, float(val)))
+    return hash(tuple(sorted(weights_data)))
 
 def get_weight_color(weight):
     """
@@ -120,12 +136,33 @@ def draw_callback_px():
     if not getattr(scene, "mwc_show_viewport_preview", False):
         return
         
-    global _scene_mbs, _scene_mbs_dirty
+    global _scene_mbs, _scene_mbs_dirty, _last_active_object_name, _last_active_bone, _last_weights_hash
     col = bpy.data.collections.get("MWC_Metaballs")
+    
+    color_by_bone = getattr(scene, "mwc_color_by_active_bone", False)
+    active_bone = ""
+    if color_by_bone:
+        from .__init__ import get_active_bone_name
+        active_bone = get_active_bone_name(context)
+        
     if col and col.objects:
-        if _scene_mbs_dirty:
+        active_obj = context.active_object
+        current_active_name = active_obj.name if active_obj else ""
+        current_weights_hash = get_weights_hash(active_obj) if (active_obj and active_obj.type == 'META') else 0
+        
+        # Lazy check if anything has changed
+        if (len(col.objects) != len(_scene_mbs) or 
+            current_active_name != _last_active_object_name or
+            active_bone != _last_active_bone or
+            current_weights_hash != _last_weights_hash or
+            _scene_mbs_dirty):
+            
             _scene_mbs = extract_mbs_from_collection()
             _scene_mbs_dirty = False
+            _last_active_object_name = current_active_name
+            _last_active_bone = active_bone
+            _last_weights_hash = current_weights_hash
+            
         mbs = _scene_mbs
     else:
         global _cached_mbs
@@ -134,11 +171,6 @@ def draw_callback_px():
     if not mbs:
         return
         
-    color_by_bone = getattr(scene, "mwc_color_by_active_bone", False)
-    active_bone = ""
-    if color_by_bone:
-        from .__init__ import get_active_bone_name
-        active_bone = get_active_bone_name(context)
     arm_obj = get_armature_object(scene, context)
         
     solid_batch, wire_batch = get_sphere_batches()
