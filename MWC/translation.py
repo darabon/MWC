@@ -27,10 +27,7 @@ TRANSLATIONS = {
         "smoothing_iterations": "Iterations",
         "apply": "Apply",
         
-        "warning_dialog_title": "Warning",
-        "warning_dialog_text_1": "This object consists of multiple nested objects",
-        "warning_dialog_text_2": "and it is recommended to separate them.",
-        "warning_dialog_continue": "Continue",
+
         
         "self_intersection_warning": "Warning: Object contains self-intersecting geometry!",
         "self_intersection_details": "This can lead to weight distribution instability.",
@@ -46,10 +43,7 @@ TRANSLATIONS = {
         "info_weights_applied": "Weights successfully applied to target mesh.",
         
         "desc_source_mesh": "Mesh based on which metaballs with weights will be generated",
-        "custom_prop_creation": "Custom Settings (Creation)",
-        "custom_prop_apply": "Custom Settings (Apply)",
-        "desc_custom_prop_creation": "Allow editing of default parameters during metaball creation",
-        "desc_custom_prop_apply": "Allow editing of default parameters during weight application",
+
         "desc_alpha": "Metaball radius coefficient",
         "desc_n": "Exponent n in Wyvill formula",
         "desc_q": "Transition mixing stiffness parameter",
@@ -67,8 +61,7 @@ TRANSLATIONS = {
         "desc_use_normal_filter": "Enable weight filtering by vertex normals to prevent leaks. Do not enable if the mesh has thickness (solidify).",
         "normal_filter_p": "Normal Filter Exponent (p)",
         "desc_normal_filter_p": "Strictness exponent of the normal filter (higher p = stricter filtering)",
-        "symmetry_beta": "Symmetry Beta",
-        "desc_symmetry_beta": "Topological separation of weights along the edges of the target mesh for crossed limbs",
+
         "use_smoothing": "Use Smoothing",
         "desc_use_smoothing": "Smooth transferred weights across adjacent vertices",
         "smoothing_strength": "Smoothing Strength",
@@ -153,10 +146,7 @@ TRANSLATIONS = {
         "smoothing_iterations": "Итерации",
         "apply": "Применить",
         
-        "warning_dialog_title": "Внимание",
-        "warning_dialog_text_1": "Этот объект состоит из множества вложенных объектов",
-        "warning_dialog_text_2": "и рекомендуется разделить их.",
-        "warning_dialog_continue": "Продолжить",
+
         
         "self_intersection_warning": "Внимание: Объект содержит самопересечения геометрии!",
         "self_intersection_details": "Это может привести к нестабильности распределения весов.",
@@ -172,10 +162,7 @@ TRANSLATIONS = {
         "info_weights_applied": "Веса успешно применены к целевому мешу.",
         
         "desc_source_mesh": "Меш, на основе которого будут сгенерированы метаболлы с весами",
-        "custom_prop_creation": "Свои параметры (Создание)",
-        "custom_prop_apply": "Свои параметры (Применение)",
-        "desc_custom_prop_creation": "Разрешить редактирование параметров по умолчанию при создании метаболов",
-        "desc_custom_prop_apply": "Разрешить редактирование параметров по умолчанию при применении весов",
+
         "desc_alpha": "Коэффициент радиуса метаболов",
         "desc_n": "Степень n в функции Wyvill",
         "desc_q": "Параметр жесткости перехода смешивания",
@@ -193,8 +180,7 @@ TRANSLATIONS = {
         "desc_use_normal_filter": "Включить фильтрацию весов по нормалям вершин для предотвращения протекания. Не включайте, если меш имеет толщину.",
         "normal_filter_p": "Строгость (p)",
         "desc_normal_filter_p": "Показатель степени строгости фильтра нормалей (выше p - строже фильтрация)",
-        "symmetry_beta": "Симметрия Бета",
-        "desc_symmetry_beta": "Топологическое разделение весов по ребрам целевого меша для скрещенных конечностей",
+
         "use_smoothing": "Сглаживание",
         "desc_use_smoothing": "Сглаживать перенесенные веса по соседним вершинам",
         "smoothing_strength": "Сила сглаживания",

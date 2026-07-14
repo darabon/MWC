@@ -274,24 +274,7 @@ class MWC17_OT_ClearViewportMetaballs(OperatorBase):
         return {'FINISHED'}
 
 
-class MWC17_OT_WarningDialog(OperatorBase):
-    bl_idname = "mwc17.warning_dialog"
-    bl_label = "Warning / Внимание"
-    bl_options = {'REGISTER', 'INTERNAL'}
 
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.label(text=t("warning_dialog_text_1"))
-        col.label(text=t("warning_dialog_text_2"))
-
-    def execute(self, context):
-        # Proceed with metaball generation, bypass confirmation check
-        bpy.ops.mwc17.create_metaballs('EXEC_DEFAULT', confirmed=True)
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=450)
 
 
 class MWC17_OT_CreateMetaballs(OperatorBase):
@@ -299,8 +282,6 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
     bl_label = "Create Metaballs / Создать метаболы"
     bl_description = "Generate metaballs from vertex weights of the source mesh and save to cache"
     bl_options = {'REGISTER', 'UNDO'}
-
-    confirmed: bpy.props.BoolProperty(default=False, options={'HIDDEN'})
 
     def execute(self, context):
         if context.active_object and context.active_object.mode != 'OBJECT':
@@ -317,39 +298,18 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
             self.report({'ERROR'}, t("err_source_must_mesh"))
             return {'CANCELLED'}
 
-        # Count islands for warning
-        islands = count_mesh_islands(src_obj)
-        if islands > 1 and not self.confirmed:
-            bpy.ops.mwc17.warning_dialog('INVOKE_DEFAULT')
-            return {'FINISHED'}
+        alpha = scene.mwc_alpha
+        k_coeff = scene.mwc_subdivision_k
+        merge_close = scene.mwc_merge_close
+        merge_factor = scene.mwc_merge_factor
 
-        # Determine parameters (custom vs default)
-        if scene.mwc_use_custom_props_creation:
-            alpha = scene.mwc_alpha
-            k_coeff = scene.mwc_subdivision_k
-            merge_close = scene.mwc_merge_close
-            merge_factor = scene.mwc_merge_factor
+        use_joint_scaling = scene.mwc_use_joint_scaling
+        armature_obj = get_armature_object(scene, context)
+        joint_scale = scene.mwc_joint_scale
+        middle_scale = scene.mwc_middle_scale
 
-            use_joint_scaling = scene.mwc_use_joint_scaling
-            armature_obj = get_armature_object(scene, context)
-            joint_scale = scene.mwc_joint_scale
-            middle_scale = scene.mwc_middle_scale
-
-            use_thickness_scaling = scene.mwc_use_thickness_scaling
-            thickness_factor = scene.mwc_thickness_factor
-        else:
-            alpha = 0.70
-            k_coeff = 2.0
-            merge_close = True
-            merge_factor = 0.5
-
-            use_joint_scaling = False
-            armature_obj = None
-            joint_scale = 0.5
-            middle_scale = 1.2
-
-            use_thickness_scaling = False
-            thickness_factor = 0.5
+        use_thickness_scaling = scene.mwc_use_thickness_scaling
+        thickness_factor = scene.mwc_thickness_factor
 
         creation_type = scene.mwc_creation_type
         use_symmetry = scene.mwc_symmetry
@@ -373,10 +333,10 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
         all_mbs = original_mbs + virtual_mbs
         save_mbs_to_npz(
             all_mbs, alpha,
-            scene.mwc_n if scene.mwc_use_custom_props_apply else 2,
-            scene.mwc_q if scene.mwc_use_custom_props_apply else 1.5,
-            scene.mwc_tau if scene.mwc_use_custom_props_apply else 0.001,
-            scene.mwc_r_falloff_coeff if scene.mwc_use_custom_props_apply else 2.5
+            scene.mwc_n,
+            scene.mwc_q,
+            scene.mwc_tau,
+            scene.mwc_r_falloff_coeff
         )
 
         # Sync cache properties in scene
@@ -519,22 +479,14 @@ class MWC17_OT_ApplyWeights(OperatorBase):
                 return {'CANCELLED'}
             mbs, meta = loaded
 
-        # Read parameters from UI or cache
-        if scene.mwc_use_custom_props_apply:
-            n = scene.mwc_n
-            q = scene.mwc_q
-            tau = scene.mwc_tau
-            r_falloff_coeff = scene.mwc_r_falloff_coeff
-        else:
-            n = meta['n']
-            q = meta['q']
-            tau = meta['tau']
-            r_falloff_coeff = meta['r_falloff_coeff']
+        n = scene.mwc_n
+        q = scene.mwc_q
+        tau = scene.mwc_tau
+        r_falloff_coeff = scene.mwc_r_falloff_coeff
 
         use_normal_filter = scene.mwc_use_normal_filter
         normal_p = scene.mwc_normal_filter_p
 
-        symmetry_beta = scene.mwc_symmetry_beta
         use_smoothing = scene.mwc_use_smoothing
         smoothing_strength = scene.mwc_smoothing_strength
         smoothing_iterations = scene.mwc_smoothing_iterations
@@ -548,7 +500,6 @@ class MWC17_OT_ApplyWeights(OperatorBase):
         apply_mwc_weights(
             target_obj, mbs, n, q, tau, r_falloff_coeff,
             use_normal_filter=use_normal_filter, normal_p=normal_p,
-            symmetry_beta=symmetry_beta,
             use_smoothing=use_smoothing,
             smoothing_strength=smoothing_strength,
             smoothing_iterations=smoothing_iterations,
@@ -609,12 +560,8 @@ class MWC17_PT_Creation(PanelBase):
         layout.label(text=t("source_data"))
         layout.prop(scene, "mwc_source_obj", text=t("source_mesh"))
 
-        # 2. Checkbox Custom Prop (Creation)
-        layout.prop(scene, "mwc_use_custom_props_creation", text=t("custom_prop"))
-
-        # 3. Parameters block (greyed out if custom prop creation is disabled)
+        # 2. Parameters block
         box = layout.box()
-        box.active = scene.mwc_use_custom_props_creation
         box.label(text=t("creation_params"))
         box.prop(scene, "mwc_alpha", text=t("alpha"))
         box.prop(scene, "mwc_subdivision_k", text=t("subdivision_k"))
@@ -667,6 +614,7 @@ class MWC17_PT_Visualization(PanelBase):
         box_view = layout.box()
         box_view.label(text=t("viewport_preview"), icon="VIEW3D")
         box_view.prop(scene, "mwc_show_viewport_preview", text=t("show_preview"))
+        box_view.operator("mwc17.select_nearest_mb", text=t("select_nearest"), icon="CURSOR")
 
         sub_preview = box_view.column()
         sub_preview.active = scene.mwc_show_viewport_preview
@@ -748,10 +696,7 @@ class MWC17_PT_Transfer(PanelBase):
         box_apply.label(text=t("transfer_params"))
 
         box_transfer = box_apply.box()
-        box_transfer.prop(scene, "mwc_use_custom_props_apply", text=t("custom_prop"))
-
         sub_transfer = box_transfer.column()
-        sub_transfer.active = scene.mwc_use_custom_props_apply
         sub_transfer.prop(scene, "mwc_use_geodesic", text=t("use_geodesic"))
         if scene.mwc_use_geodesic:
             sub_transfer.prop(scene, "mwc_geodesic_mode", text=t("geodesic_mode"))
@@ -1004,7 +949,6 @@ classes = (
     MWC17_MBWeightItem,
     MWC17_AddonPreferences,
     MWC17_OT_ClearCache,
-    MWC17_OT_WarningDialog,
     MWC17_OT_CreateMetaballs,
     MWC17_OT_ApplyWeights,
     MWC17_OT_InitCurve,
@@ -1049,17 +993,7 @@ def register():
         description=t("desc_source_mesh")
     )
 
-    bpy.types.Scene.mwc_use_custom_props_creation = bpy.props.BoolProperty(
-        name=t("custom_prop_creation"),
-        default=True,
-        description=t("desc_custom_prop_creation")
-    )
 
-    bpy.types.Scene.mwc_use_custom_props_apply = bpy.props.BoolProperty(
-        name=t("custom_prop_apply"),
-        default=True,
-        description=t("desc_custom_prop_apply")
-    )
 
     bpy.types.Scene.mwc_alpha = bpy.props.FloatProperty(
         name="Alpha",
@@ -1156,11 +1090,7 @@ def register():
         description=t("desc_normal_filter_p")
     )
 
-    bpy.types.Scene.mwc_symmetry_beta = bpy.props.BoolProperty(
-        name=t("symmetry_beta"),
-        default=True,
-        description=t("desc_symmetry_beta")
-    )
+
 
     bpy.types.Scene.mwc_use_smoothing = bpy.props.BoolProperty(
         name=t("use_smoothing"),
@@ -1195,8 +1125,7 @@ def register():
         description=t("desc_geodesic_mode"),
         items=[
             ('SEQ', "Sequential", "Sequential single-threaded calculation (safe)"),
-            ('THREAD', "Thread Pool", "Parallel multi-threaded calculation (recommended, works on all OS)"),
-            ('PROCESS', "Process Pool", "Parallel multi-process calculation (experimental, fastest on large meshes)")
+            ('THREAD', "Thread Pool", "Parallel multi-threaded calculation (recommended, works on all OS)")
         ],
         default='THREAD'
     )
@@ -1330,11 +1259,11 @@ def unregister():
 
     # Remove properties safely
     for prop in [
-        "mwc_source_obj", "mwc_use_custom_props_creation", "mwc_use_custom_props_apply",
+        "mwc_source_obj",
         "mwc_alpha", "mwc_n", "mwc_q", "mwc_tau", "mwc_r_falloff_coeff",
         "mwc_subdivision_k", "mwc_merge_close", "mwc_merge_factor",
         "mwc_creation_type", "mwc_symmetry", "mwc_target_obj",
-        "mwc_use_normal_filter", "mwc_normal_filter_p", "mwc_symmetry_beta",
+        "mwc_use_normal_filter", "mwc_normal_filter_p",
         "mwc_use_smoothing", "mwc_smoothing_strength", "mwc_smoothing_iterations",
         "mwc_use_geodesic", "mwc_geodesic_mode", "mwc_use_custom_curve",
         "mwc_cache_exists", "mwc_cache_count", "mwc_cache_alpha",

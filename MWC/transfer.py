@@ -12,11 +12,7 @@ except ImportError:
 from .translation import t
 from .utils import get_curve_mapping_node
 
-_worker_adj = None
 
-def _init_process_worker(shared_adj):
-    global _worker_adj
-    _worker_adj = shared_adj
 
 def dijkstra_pruned(adj, start_node, start_dist, max_dist):
     distances = {start_node: start_dist}
@@ -39,15 +35,10 @@ def dijkstra_thread_chunk_worker(tasks_chunk, adj):
         results[j] = dijkstra_pruned(adj, v_start, d_start, rj)
     return results
 
-def dijkstra_process_chunk_worker(tasks_chunk):
-    # Uses global _worker_adj initialized in child process
-    results = {}
-    for j, v_start, d_start, rj in tasks_chunk:
-        results[j] = dijkstra_pruned(_worker_adj, v_start, d_start, rj)
-    return results
+
 
 def apply_mwc_weights(target_obj, mbs, n, q, tau, r_falloff_multiplier,
-                      use_normal_filter=True, normal_p=1.0, symmetry_beta=False,
+                      use_normal_filter=True, normal_p=1.0,
                       use_smoothing=False, smoothing_strength=0.5, smoothing_iterations=3,
                       use_geodesic=False, use_custom_curve=False, curve_node=None,
                       geodesic_mode='THREAD'):
@@ -202,32 +193,7 @@ def apply_mwc_weights(target_obj, mbs, n, q, tau, r_falloff_multiplier,
                     for fut in concurrent.futures.as_completed(futures):
                         visited_dists_dict.update(fut.result())
                         
-            elif geodesic_mode == 'PROCESS' and len(tasks) > 1:
-                import concurrent.futures
-                import os
-                
-                num_workers = os.cpu_count() or 4
-                chunks = [[] for _ in range(num_workers)]
-                for idx, task in enumerate(tasks):
-                    chunks[idx % num_workers].append(task)
-                chunks = [c for c in chunks if c]
-                
-                try:
-                    with concurrent.futures.ProcessPoolExecutor(
-                        max_workers=len(chunks),
-                        initializer=_init_process_worker,
-                        initargs=(adj,)
-                    ) as executor:
-                        futures = [executor.submit(dijkstra_process_chunk_worker, chunk) for chunk in chunks]
-                        for fut in concurrent.futures.as_completed(futures):
-                            visited_dists_dict.update(fut.result())
-                except Exception as e:
-                    # Fallback to ThreadPoolExecutor if ProcessPoolExecutor fails
-                    print(f"[MWC] ProcessPoolExecutor failed: {e}. Falling back to ThreadPoolExecutor.")
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as executor:
-                        futures = [executor.submit(dijkstra_thread_chunk_worker, chunk, adj) for chunk in chunks]
-                        for fut in concurrent.futures.as_completed(futures):
-                            visited_dists_dict.update(fut.result())
+
             else:
                 # Sequential fallback (or if only 1 task)
                 for j, v_start, d_start, rj in tasks:
