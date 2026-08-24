@@ -1,14 +1,15 @@
 bl_info = {
-    "name": "Metaball Weight Container (MWC) 1.0",
+    "name": "Metaball Weight Container (MWC) 1.1",
     "author": "ARTEREKET and Gemini",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (4, 5, 0),
-    "location": "View3D > Sidebar > MWC 1.0 Tab",
+    "location": "View3D > Sidebar > MWC 1.1 Tab",
     "description": "Experimental: Generate metaballs saved in .npz archive and apply them to target mesh.",
     "category": "Weight",
 }
 
 import math
+import json
 import os
 import sys
 import tempfile
@@ -47,7 +48,8 @@ except ImportError:
 
 # Relative imports from current package modules
 from . import visualization
-from .generation import calculate_mwc_metaballs, count_mesh_islands
+from . import transfer as transfer_module
+from .generation import calculate_mwc_metaballs
 from .transfer import apply_mwc_weights
 from .translation import t
 from .utils import (
@@ -57,6 +59,7 @@ from .utils import (
     get_cache_filepath,
     get_curve_mapping_node,
     load_mbs_from_npz,
+    reset_cache_location,
     save_mbs_to_npz,
     triangles_intersect,
 )
@@ -124,24 +127,36 @@ def get_active_bone_name(context):
     return ""
 
 
-def sync_cache_properties(scene):
+def read_cache_status():
+    """Read-only cache status probe safe to call from UI draw() code.
+
+    Returns (exists, count, alpha). Never writes to ID properties -- writing
+    to ID classes during draw is forbidden in Blender and raises
+    'Writing to ID classes in this context is not allowed'.
+    """
     filepath = get_cache_filepath()
     if not os.path.exists(filepath):
-        scene.mwc_cache_exists = False
-        scene.mwc_cache_count = 0
-        scene.mwc_cache_alpha = 0.0
-        return
-
+        return False, 0, 0.0
     try:
-        with np.load(filepath) as data:
+        with np.load(filepath, allow_pickle=True) as data:
             if 'co' in data:
-                count = data['co'].shape[0]
+                count = int(data['co'].shape[0])
                 alpha = float(data['alpha']) if 'alpha' in data else 0.70
-                scene.mwc_cache_count = count
-                scene.mwc_cache_alpha = alpha
-                scene.mwc_cache_exists = True
+                return True, count, alpha
     except Exception as e:
-        print("Error syncing MWC cache properties:", e)
+        print("Error reading MWC cache status:", e)
+    return False, 0, 0.0
+
+
+def sync_cache_properties(scene):
+    """Write cache status into Scene ID properties.
+
+    Only callable from operator execute()/modal() contexts -- never from draw().
+    """
+    exists, count, alpha = read_cache_status()
+    scene.mwc_cache_exists = exists
+    scene.mwc_cache_count = count
+    scene.mwc_cache_alpha = alpha
 
 
 class MWC17_OT_ClearCache(OperatorBase):
@@ -292,29 +307,39 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
         use_symmetry = scene.mwc_symmetry
 
         # Calculate original and virtual metaballs
-        original_mbs, virtual_mbs = calculate_mwc_metaballs(
-            src_obj, alpha, creation_type,
-            k_coeff=k_coeff,
-            merge_close=merge_close,
-            merge_factor=merge_factor,
-            use_symmetry=use_symmetry,
-            use_joint_scaling=use_joint_scaling,
-            armature_obj=armature_obj,
-            joint_scale=joint_scale,
-            middle_scale=middle_scale,
-            use_thickness_scaling=use_thickness_scaling,
-            thickness_factor=thickness_factor
-        )
+        import time as _time
+        t_start = _time.perf_counter()
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+        try:
+            wm.progress_update(5)
+            original_mbs, virtual_mbs = calculate_mwc_metaballs(
+                src_obj, alpha, creation_type,
+                k_coeff=k_coeff,
+                merge_close=merge_close,
+                merge_factor=merge_factor,
+                use_symmetry=use_symmetry,
+                use_joint_scaling=use_joint_scaling,
+                armature_obj=armature_obj,
+                joint_scale=joint_scale,
+                middle_scale=middle_scale,
+                use_thickness_scaling=use_thickness_scaling,
+                thickness_factor=thickness_factor
+            )
+            wm.progress_update(85)
 
-        # Save metaballs to NPZ cache directly
-        all_mbs = original_mbs + virtual_mbs
-        save_mbs_to_npz(
-            all_mbs, alpha,
-            scene.mwc_n,
-            scene.mwc_q,
-            scene.mwc_tau,
-            scene.mwc_r_falloff_coeff
-        )
+            # Save metaballs to NPZ cache directly
+            all_mbs = original_mbs + virtual_mbs
+            save_mbs_to_npz(
+                all_mbs, alpha,
+                scene.mwc_n,
+                scene.mwc_q,
+                scene.mwc_tau,
+                scene.mwc_r_falloff_coeff
+            )
+            wm.progress_update(95)
+        finally:
+            wm.progress_end()
 
         # Sync cache properties in scene
         scene.mwc_cache_exists = True
@@ -324,7 +349,9 @@ class MWC17_OT_CreateMetaballs(OperatorBase):
         load_cached_mbs_from_file()
         tag_redraw_all_views(self, context)
 
-        self.report({'INFO'}, t("Successfully created {} metaballs.", len(all_mbs)))
+        elapsed = _time.perf_counter() - t_start
+        self.report({'INFO'}, t("Successfully created {} metaballs.", len(all_mbs)) +
+                    " (%.2fs, %d src / %d virtual)" % (elapsed, len(original_mbs), len(virtual_mbs)))
         return {'FINISHED'}
 
 
@@ -473,50 +500,62 @@ class MWC17_OT_ApplyWeights(OperatorBase):
         use_custom_curve = scene.mwc_use_custom_curve
         curve_node = get_curve_mapping_node() if use_custom_curve else None
 
-        # Apply the weights
-        apply_mwc_weights(
-            target_obj, mbs, n, q, tau, r_falloff_coeff,
-            use_normal_filter=use_normal_filter, normal_p=normal_p,
-            use_smoothing=use_smoothing,
-            smoothing_strength=smoothing_strength,
-            smoothing_iterations=smoothing_iterations,
-            use_geodesic=use_geodesic,
-            use_custom_curve=use_custom_curve,
-            curve_node=curve_node,
-            geodesic_mode=geodesic_mode
-        )
+        # Apply the weights with a live progress bar in the status bar
+        import time as _time
+        t_start = _time.perf_counter()
+        wm = context.window_manager
+        last_stage = [-1]
 
-        self.report({'INFO'}, t("Weights successfully applied to target mesh."))
+        def _progress(frac, msg=""):
+            stage = int(frac * 100)
+            if stage != last_stage[0]:
+                last_stage[0] = stage
+                wm.progress_update(stage)
+
+        wm.progress_begin(0, 100)
+        try:
+            apply_mwc_weights(
+                target_obj, mbs, n, q, tau, r_falloff_coeff,
+                use_normal_filter=use_normal_filter, normal_p=normal_p,
+                use_smoothing=use_smoothing,
+                smoothing_strength=smoothing_strength,
+                smoothing_iterations=smoothing_iterations,
+                use_geodesic=use_geodesic,
+                use_custom_curve=use_custom_curve,
+                curve_node=curve_node,
+                geodesic_mode=geodesic_mode,
+                progress_cb=_progress
+            )
+        finally:
+            wm.progress_end()
+
+        elapsed = _time.perf_counter() - t_start
+        engine = "SciPy" if getattr(transfer_module, 'HAS_SCIPY', False) else "NumPy"
+        self.report({'INFO'},
+                    t("Weights successfully applied to target mesh.") +
+                    " (%.2fs, %s engine)" % (elapsed, engine))
         return {'FINISHED'}
 
 
 class MWC17_PT_MainPanel(PanelBase):
-    bl_label = "Metaball Weight Container (MWC) 1.0"
+    bl_label = "Metaball Weight Container (MWC) 1.1"
     bl_idname = "MWC17_PT_MainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.0'
+    bl_category = 'MWC 1.1'
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
 
-        # General Cache Info status shown at the very top (always visible)
+        # General Cache Info status shown at the very top (always visible).
+        # Read-only: writing to Scene properties inside draw() is forbidden.
         box_cache = layout.box()
-        filepath = get_cache_filepath()
-        if os.path.exists(filepath):
-            if not scene.mwc_cache_exists:
-                sync_cache_properties(scene)
-
-            if scene.mwc_cache_exists:
-                box_cache.label(text=t("Loaded {} metaballs (Alpha: {})", scene.mwc_cache_count, f"{scene.mwc_cache_alpha:.2f}"), icon="FILE_TICK")
-            else:
-                box_cache.label(text=t("Metaballs Cache Status:") + " " + t("Empty (Run 'Create')"), icon="FILE_BLANK")
+        cache_exists, cache_count, cache_alpha = read_cache_status()
+        if cache_exists:
+            box_cache.label(text=t("Loaded {} metaballs (Alpha: {})", cache_count, f"{cache_alpha:.2f}"), icon="FILE_TICK")
             box_cache.operator("mwc17.clear_cache", text=t("Clear Cache"), icon="TRASH")
         else:
-            scene.mwc_cache_exists = False
-            scene.mwc_cache_count = 0
-            scene.mwc_cache_alpha = 0.0
             box_cache.label(text=t("Metaballs Cache Status:") + " " + t("Empty (Run 'Create')"), icon="FILE_BLANK")
 
 
@@ -525,7 +564,7 @@ class MWC17_PT_Creation(PanelBase):
     bl_idname = "MWC17_PT_Creation"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.0'
+    bl_category = 'MWC 1.1'
     bl_parent_id = "MWC17_PT_MainPanel"
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -565,8 +604,17 @@ class MWC17_PT_Creation(PanelBase):
         layout.prop(scene, "mwc_creation_type", text="Grouping")
         layout.prop(scene, "mwc_symmetry", text="Symmetry")
 
-        # 5. Create button
+        # 5. Create button -- drawn BEFORE the preset row so that any failure in
+        # the (less critical) preset UI can never hide the primary action.
         layout.operator("mwc17.create_metaballs", text="Create", icon="META_BALL")
+
+        # Parameter presets
+        try:
+            row_preset = layout.row(align=True)
+            row_preset.operator("mwc17.load_preset", text="Load Preset", icon="FILE_REFRESH")
+            row_preset.operator("mwc17.save_preset", text="", icon="SAVE_AS")
+        except Exception as e:
+            print("MWC preset row draw failed:", e)
 
 
 class MWC17_PT_Visualization(PanelBase):
@@ -574,7 +622,7 @@ class MWC17_PT_Visualization(PanelBase):
     bl_idname = "MWC17_PT_Visualization"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.0'
+    bl_category = 'MWC 1.1'
     bl_parent_id = "MWC17_PT_MainPanel"
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -656,13 +704,21 @@ class MWC17_PT_Transfer(PanelBase):
     bl_idname = "MWC17_PT_Transfer"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MWC 1.7'
+    bl_category = 'MWC 1.1'
     bl_parent_id = "MWC17_PT_MainPanel"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
+
+        # Performance engine status: shows whether the C-accelerated SciPy
+        # path (vectorized KD queries + Dijkstra) is active.
+        engine_box = layout.box()
+        if getattr(transfer_module, 'HAS_SCIPY', False):
+            engine_box.label(text="Engine: SciPy (C accelerated)", icon="MODIFIER_ON")
+        else:
+            engine_box.label(text="Engine: NumPy fallback", icon="MODIFIER")
 
         # Target selection
         layout.label(text="Weight Application:")
@@ -712,6 +768,24 @@ def get_creation_type_items(self, context):
         ('SINGLE', "Single Object", "All metaballs belong to one group/family"),
         ('MULTIPLY', "Multiple Objects", "Separate metaballs into families based on geometry islands")
     ]
+
+
+def _preset_items(_self=None, _context=None):
+    """Enum items for the preset loader, discovered from the presets dir."""
+    if not HAS_BLENDER:
+        return [("", "", "")]
+    directory = _mwc_presets_dir()
+    items = []
+    try:
+        for fname in sorted(os.listdir(directory)):
+            if fname.endswith(".json"):
+                stem = fname[:-5]
+                items.append((stem, stem, f"Apply preset {stem}"))
+    except OSError:
+        pass
+    if not items:
+        items = [("", "(no presets yet)", "Save a preset first")]
+    return items
 
 
 def update_use_custom_curve(self, context):
@@ -851,7 +925,7 @@ class MWC17_OT_AddActiveMBWeight(OperatorBase):
         if not HAS_BLENDER:
             return {'CANCELLED'}
         active_obj = context.active_object
-        if not active_obj or active_obj.type != 'META' or not active_obj.name.startswith("MB_"):
+        if not visualization.is_mwc_metaball(active_obj):
             self.report({'WARNING'}, "No active metaball selected.")
             return {'CANCELLED'}
 
@@ -877,7 +951,7 @@ class MWC17_OT_RemoveActiveMBWeight(OperatorBase):
         if not HAS_BLENDER:
             return {'CANCELLED'}
         active_obj = context.active_object
-        if not active_obj or active_obj.type != 'META' or not active_obj.name.startswith("MB_"):
+        if not visualization.is_mwc_metaball(active_obj):
             return {'CANCELLED'}
 
         if self.bone_name in active_obj:
@@ -897,7 +971,7 @@ class MWC17_OT_SnapActiveMBToCursor(OperatorBase):
         if not HAS_BLENDER:
             return {'CANCELLED'}
         active_obj = context.active_object
-        if not active_obj or active_obj.type != 'META' or not active_obj.name.startswith("MB_"):
+        if not visualization.is_mwc_metaball(active_obj):
             self.report({'WARNING'}, "No active metaball selected.")
             return {'CANCELLED'}
 
@@ -922,6 +996,106 @@ class MWC17_OT_SaveCollectionToCache(OperatorBase):
             return {'CANCELLED'}
 
 
+# ---------------------------------------------------------------------------
+# Preset system -- save/load every generation & transfer parameter as a named
+# JSON preset under presets/operator/mwc17.preset/. Character pipelines reuse
+# the same settings across dozens of garments; typing them by hand each time
+# is error-prone, and Blender's own preset framework would only cover props
+# drawn directly in a panel column.
+# ---------------------------------------------------------------------------
+_MWC_PRESET_PROPS = (
+    # Generation
+    "mwc_alpha", "mwc_subdivision_k", "mwc_merge_close", "mwc_merge_factor",
+    "mwc_use_joint_scaling", "mwc_joint_scale", "mwc_middle_scale",
+    "mwc_use_thickness_scaling", "mwc_thickness_factor",
+    "mwc_creation_type", "mwc_symmetry",
+    # Transfer
+    "mwc_n", "mwc_q", "mwc_tau", "mwc_r_falloff_coeff",
+    "mwc_use_normal_filter", "mwc_normal_filter_p",
+    "mwc_use_smoothing", "mwc_smoothing_strength", "mwc_smoothing_iterations",
+    "mwc_use_geodesic", "mwc_geodesic_mode", "mwc_use_custom_curve",
+)
+
+
+def _mwc_presets_dir():
+    return os.path.join(bpy.utils.resource_path('USER'), "scripts", "presets", "operator", "mwc17.preset")
+
+
+class MWC17_OT_SavePreset(OperatorBase):
+    bl_idname = "mwc17.save_preset"
+    bl_label = "Save Preset"
+    bl_description = "Save all MWC generation and transfer parameters as a reusable preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset_name: bpy.props.StringProperty(name="Name", default="MyPreset")
+
+    def execute(self, context):
+        name = self.preset_name.strip()
+        if not name:
+            self.report({'WARNING'}, t("Preset name cannot be empty."))
+            return {'CANCELLED'}
+        safe = bpy.path.clean_name(name)
+        scene = context.scene
+        data = {prop: getattr(scene, prop) for prop in _MWC_PRESET_PROPS}
+        data["_version"] = (1, 2)
+        directory = _mwc_presets_dir()
+        try:
+            os.makedirs(directory, exist_ok=True)
+            path = os.path.join(directory, safe + ".json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to save preset: {e}")
+            return {'CANCELLED'}
+        self.report({'INFO'}, t("Preset '{}' saved.", safe))
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "preset_name", text=t("Name"))
+
+
+class MWC17_OT_LoadPreset(OperatorBase):
+    bl_idname = "mwc17.load_preset"
+    bl_label = "Load Preset"
+    bl_description = "Apply a saved MWC parameter preset to the current scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset_name: bpy.props.EnumProperty(
+        name="Preset",
+        description="Saved parameter preset to apply",
+        items=_preset_items,
+    )
+
+    def execute(self, context):
+        if not self.preset_name:
+            self.report({'WARNING'}, t("No presets found."))
+            return {'CANCELLED'}
+        path = os.path.join(_mwc_presets_dir(), self.preset_name + ".json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read preset: {e}")
+            return {'CANCELLED'}
+
+        scene = context.scene
+        applied = 0
+        for prop, value in data.items():
+            if prop.startswith("_") or prop not in _MWC_PRESET_PROPS:
+                continue
+            try:
+                setattr(scene, prop, value)
+                applied += 1
+            except Exception as e:
+                print(f"MWC preset: could not set {prop}={value!r}: {e}")
+        self.report({'INFO'}, t("Applied {} parameters from preset.", applied))
+        return {'FINISHED'}
+
+
 classes = (
     MWC17_MBWeightItem,
     MWC17_OT_ClearCache,
@@ -935,6 +1109,8 @@ classes = (
     MWC17_OT_SnapActiveMBToCursor,
     MWC17_OT_SpawnViewportMetaballs,
     MWC17_OT_ClearViewportMetaballs,
+    MWC17_OT_SavePreset,
+    MWC17_OT_LoadPreset,
     MWC17_PT_MainPanel,
     MWC17_PT_Creation,
     MWC17_PT_Visualization,
@@ -949,7 +1125,7 @@ def mwc17_depsgraph_update(scene, depsgraph):
             visualization._scene_mbs_dirty = True
 
     active_obj = bpy.context.active_object
-    if active_obj and active_obj.type == 'META' and active_obj.name.startswith("MB_"):
+    if active_obj and active_obj.type == 'META' and visualization.is_mwc_metaball(active_obj, col):
         visualization._scene_mbs_dirty = True
         return
 
@@ -957,6 +1133,14 @@ def mwc17_depsgraph_update(scene, depsgraph):
         if update.id.name.startswith("MB_") or update.id.name == "MWC_Metaballs":
             visualization._scene_mbs_dirty = True
             break
+
+
+def _on_load_post(_scene, _depsgraph):
+    # The per-blend cache path is derived from bpy.data.filepath; after a
+    # file load it must be re-derived or the addon would keep reading the
+    # previous blend's cache namespace.
+    reset_cache_location()
+    load_cached_mbs_from_file()
 
 
 def register():
@@ -1059,7 +1243,7 @@ def register():
 
     bpy.types.Scene.mwc_use_normal_filter = bpy.props.BoolProperty(
         name="Use Normal Filter",
-        default=True,
+        default=False,
         description="Enable weight filtering by vertex normals to prevent leaks. Do not enable if the mesh has thickness (solidify)."
     )
 
@@ -1104,7 +1288,8 @@ def register():
         description="Choose multi-threading/multi-processing method for Dijkstra calculation",
         items=[
             ('SEQ', "Sequential", "Sequential single-threaded calculation (safe)"),
-            ('THREAD', "Thread Pool", "Parallel multi-threaded calculation (recommended, works on all OS)")
+            ('THREAD', "Thread Pool", "Parallel multi-threaded calculation (recommended, works on all OS)"),
+            ('PROCESS', "Process Pool", "Parallel multi-process calculation (experimental, fastest on multi-core CPUs for heavy 100k+ vertex meshes)")
         ],
         default='THREAD'
     )
@@ -1224,6 +1409,8 @@ def register():
     load_cached_mbs_from_file()
     if HAS_BLENDER:
         bpy.app.handlers.depsgraph_update_post.append(mwc17_depsgraph_update)
+        if _on_load_post not in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.append(_on_load_post)
 
 
 def unregister():
@@ -1237,6 +1424,8 @@ def unregister():
     if HAS_BLENDER:
         if mwc17_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.remove(mwc17_depsgraph_update)
+        if _on_load_post in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.remove(_on_load_post)
 
     visualization._cached_mbs = []
     visualization._scene_mbs = []

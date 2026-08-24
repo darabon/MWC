@@ -1,4 +1,5 @@
 import os
+import hashlib
 import tempfile
 import numpy as np
 
@@ -10,8 +11,46 @@ except ImportError:
     HAS_BLENDER = False
 
 
+# Cache filename policy: per-blend isolation with a shared fallback.
+#
+# The v1.0 cache was a single global file in the temp dir -- opening two
+# characters in two Blender instances silently overwrote each other's cache.
+# v1.2 derives a suffix from the absolute .blend path (stable across sessions,
+# filesystem moves of the temp dir, and Blender restarts) so every blend gets
+# its own cache namespace, while unsaved/unknown files keep sharing the
+# generic "default" cache.
+_CACHE_DEFAULT_NAME = "mwc_metaballs_cache"
+_blend_cache_suffix = None
+
+
+def _compute_cache_suffix():
+    if not HAS_BLENDER:
+        return None
+    try:
+        filepath = bpy.data.filepath
+    except Exception:
+        return None
+    if not filepath:
+        return None
+    norm = os.path.normcase(os.path.abspath(filepath))
+    digest = hashlib.md5(norm.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    base = os.path.splitext(os.path.basename(filepath))[0][:48] or "untitled"
+    safe_base = "".join(c if c.isalnum() or c in "-_" else "_" for c in base)
+    return f"{safe_base}_{digest}"
+
+
 def get_cache_filepath():
-    return os.path.join(tempfile.gettempdir(), "mwc_metaballs_cache.npz")
+    global _blend_cache_suffix
+    if _blend_cache_suffix is None:
+        _blend_cache_suffix = _compute_cache_suffix()
+    name = (_CACHE_DEFAULT_NAME + "@" + _blend_cache_suffix) if _blend_cache_suffix else _CACHE_DEFAULT_NAME
+    return os.path.join(tempfile.gettempdir(), name + ".npz")
+
+
+def reset_cache_location():
+    """Re-derive the per-blend cache path (call after save-as / load)."""
+    global _blend_cache_suffix
+    _blend_cache_suffix = _compute_cache_suffix()
 
 def get_vertex_weights(obj, v_idx):
     """
@@ -27,6 +66,31 @@ def get_vertex_weights(obj, v_idx):
             # Vertex is not in this vertex group
             pass
     return weights
+
+def build_vertex_weights_map(obj):
+    """
+    Build {vertex_index: {bone_name: weight}} for the whole mesh in a single
+    pass over its vertices. Orders of magnitude faster than calling
+    get_vertex_weights() per vertex (which iterates every vertex group and
+    raises/catches RuntimeError for each empty one).
+    """
+    weights_map = {}
+    vgs = list(obj.vertex_groups)
+    if not vgs:
+        return weights_map
+    vg_names = [vg.name for vg in vgs]
+    n_vg = len(vgs)
+    for v in obj.data.vertices:
+        entries = {}
+        for ge in v.groups:
+            g = ge.group
+            if g < n_vg:
+                w_val = ge.weight
+                if w_val >= 0.001:
+                    entries[vg_names[g]] = float(w_val)
+        if entries:
+            weights_map[v.index] = entries
+    return weights_map
 
 def save_mbs_to_npz(mbs, alpha, n, q, tau, r_falloff_coeff):
     filepath = get_cache_filepath()
@@ -75,40 +139,62 @@ def save_mbs_to_npz(mbs, alpha, n, q, tau, r_falloff_coeff):
         co_local_list.append(list(co_local))
         parent_bones_list.append(parent_bone)
         
-    np.savez(filepath,
-             co=co,
-             radius=radius,
-             normal=normal,
-             family_id=family_id,
-             symmetry_class=symmetry_class,
-             bone_names=np.array(bone_names),
-             weights=weights,
-             alpha=alpha,
-             n=n,
-             q=q,
-             tau=tau,
-             r_falloff_coeff=r_falloff_coeff,
-             co_local=np.array(co_local_list, dtype=np.float32),
-             parent_bone=np.array(parent_bones_list))
+    # Atomic write: save to a temp file first, then os.replace() it into
+    # place. A crash mid-save can never corrupt the existing cache.
+    tmp_path = filepath + ".tmp%d" % os.getpid()
+    try:
+        with open(tmp_path, 'wb') as fh:
+            np.savez(fh,
+                     co=co,
+                     radius=radius,
+                     normal=normal,
+                     family_id=family_id,
+                     symmetry_class=symmetry_class,
+                     bone_names=np.array(bone_names),
+                     weights=weights,
+                     alpha=alpha,
+                     n=n,
+                     q=q,
+                     tau=tau,
+                     r_falloff_coeff=r_falloff_coeff,
+                     co_local=np.array(co_local_list, dtype=np.float32),
+                     parent_bone=np.array(parent_bones_list))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, filepath)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 def load_mbs_from_npz():
     filepath = get_cache_filepath()
     if not os.path.exists(filepath):
         return None
     try:
-        data = np.load(filepath, allow_pickle=True)
-        co = data['co']
-        radius = data['radius']
-        normal = data['normal']
-        family_id = data['family_id']
-        symmetry_class_int = data['symmetry_class']
-        bone_names = [b.decode('utf-8') if isinstance(b, bytes) else str(b) for b in data['bone_names'].tolist()]
-        weights = data['weights']
-        
-        co_local = data['co_local'] if 'co_local' in data.files else None
-        parent_bone = data['parent_bone'].tolist() if 'parent_bone' in data.files else None
-        if parent_bone is not None:
-            parent_bone = [b.decode('utf-8') if isinstance(b, bytes) else str(b) for b in parent_bone]
+        with np.load(filepath, allow_pickle=True) as data:
+            co = data['co']
+            radius = data['radius']
+            normal = data['normal']
+            family_id = data['family_id']
+            symmetry_class_int = data['symmetry_class']
+            bone_names = [b.decode('utf-8') if isinstance(b, bytes) else str(b) for b in data['bone_names'].tolist()]
+            weights = data['weights']
+
+            co_local = data['co_local'] if 'co_local' in data.files else None
+            parent_bone = data['parent_bone'].tolist() if 'parent_bone' in data.files else None
+            if parent_bone is not None:
+                parent_bone = [b.decode('utf-8') if isinstance(b, bytes) else str(b) for b in parent_bone]
+
+            metadata = {
+                'alpha': float(data['alpha']) if 'alpha' in data else 0.70,
+                'n': int(data['n']) if 'n' in data else 2,
+                'q': float(data['q']) if 'q' in data else 1.5,
+                'tau': float(data['tau']) if 'tau' in data else 0.001,
+                'r_falloff_coeff': float(data['r_falloff_coeff']) if 'r_falloff_coeff' in data else 2.5
+            }
         
         sym_map_inv = {1: 'L', 2: 'R', 3: 'C'}
         
@@ -145,68 +231,74 @@ def load_mbs_from_npz():
                 'co_local': co_local[j].tolist() if co_local is not None else None,
                 'parent_bone': parent_bone[j] if parent_bone is not None else ""
             })
-            
-        metadata = {
-            'alpha': float(data['alpha']) if 'alpha' in data else 0.70,
-            'n': int(data['n']) if 'n' in data else 2,
-            'q': float(data['q']) if 'q' in data else 1.5,
-            'tau': float(data['tau']) if 'tau' in data else 0.001,
-            'r_falloff_coeff': float(data['r_falloff_coeff']) if 'r_falloff_coeff' in data else 2.5
-        }
+
         return mbs, metadata
     except Exception as e:
         print("Error loading MWC cache NPZ:", e)
+        # A corrupt/unreadable cache should not keep poisoning the session:
+        # remove it so the UI falls back to the clean "Empty" state.
+        try:
+            os.remove(filepath)
+            print("Removed corrupt MWC cache file.")
+        except OSError:
+            pass
         return None
 
-def project_point_on_segment(P, A, B):
+JOINT_INFLUENCE_RANGE = 0.1
+
+def precompute_bone_joints(armature_obj):
     """
-    Project point P onto segment AB. Returns projection point and factor t in [0, 1].
+    Collect all bone head/tail joint positions in world space ONCE.
+    Returns an (2*B, 3) float64 array, or None if unusable.
     """
-    AB = B - A
-    ab_len_sq = AB.length_squared
-    if ab_len_sq < 1e-8:
-        return A, 0.0
-    t = (P - A).dot(AB) / ab_len_sq
-    t = max(0.0, min(1.0, t))
-    proj = A + t * AB
-    return proj, t
+    if not armature_obj or getattr(armature_obj, 'type', None) != 'ARMATURE':
+        return None
+    arm_matrix = armature_obj.matrix_world
+    joints = []
+    for bone in armature_obj.data.bones:
+        joints.append(tuple(arm_matrix @ bone.head))
+        joints.append(tuple(arm_matrix @ bone.tail))
+    if not joints:
+        return None
+    return np.array(joints, dtype=np.float64)
+
+def joint_aware_multipliers(points, joints, joint_scale=0.5, middle_scale=1.2):
+    """
+    Vectorized per-point radius multipliers.
+
+    points: (N, 3) float array in world space.
+    joints: (J, 3) float array of bone head/tail positions (see
+            precompute_bone_joints).
+
+    Returns an (N,) float64 array. Mathematically identical to calling
+    get_joint_aware_multiplier() per point, but computes the minimum
+    distance-to-joint for all points in bulk instead of looping over every
+    bone for every point in Python.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    n = len(pts)
+    if joints is None or len(joints) == 0 or n == 0:
+        return np.ones(n, dtype=np.float64)
+
+    min_dist = np.full(n, np.inf, dtype=np.float64)
+    for j in range(len(joints)):
+        d = np.sqrt(((pts - joints[j]) ** 2).sum(axis=1))
+        np.minimum(min_dist, d, out=min_dist)
+
+    factor = np.minimum(min_dist / JOINT_INFLUENCE_RANGE, 1.0)
+    s_factor = factor * factor * (3.0 - 2.0 * factor)
+    return joint_scale + s_factor * (middle_scale - joint_scale)
 
 def get_joint_aware_multiplier(P, armature_obj, joint_scale=0.5, middle_scale=1.2):
+    """Scalar convenience wrapper around joint_aware_multipliers()."""
     if not armature_obj:
         return 1.0
-        
-    min_dist_to_joint = float('inf')
-    found_any_bone = False
-    
-    arm_matrix = armature_obj.matrix_world
-    for bone in armature_obj.data.bones:
-        # Get head and tail in armature space, then convert to world
-        head_w = arm_matrix @ bone.head
-        tail_w = arm_matrix @ bone.tail
-        
-        # Project metaball point P onto bone segment
-        proj, t_val = project_point_on_segment(P, head_w, tail_w)
-        
-        dist_to_head = (P - head_w).length
-        dist_to_tail = (P - tail_w).length
-        
-        min_dist_to_joint = min(min_dist_to_joint, dist_to_head, dist_to_tail)
-        found_any_bone = True
-        
-    if not found_any_bone:
+    joints = precompute_bone_joints(armature_obj)
+    if joints is None:
         return 1.0
-        
-    # Standard Bone Joint Radius Interpolator:
-    # Scale decreases to joint_scale near joints and increases to middle_scale in the middle
-    # Based on a characteristic joint influence range (default: 0.1m)
-    joint_influence_range = 0.1
-    if min_dist_to_joint < joint_influence_range:
-        factor = min_dist_to_joint / joint_influence_range
-        # Smooth interpolation
-        s_factor = 3 * (factor ** 2) - 2 * (factor ** 3)
-        return joint_scale + s_factor * (middle_scale - joint_scale)
-        
-    return middle_scale
+    return float(joint_aware_multipliers(
+        np.array([tuple(P)], dtype=np.float64), joints, joint_scale, middle_scale
+    )[0])
 
 def is_bone_central(name):
     # Detect typical central bone naming conventions
@@ -219,22 +311,28 @@ def is_bone_central(name):
     return False
 
 def swap_bone_side(name):
-    if name.endswith(".L"):
-        return name[:-2] + ".R"
-    elif name.endswith(".R"):
-        return name[:-2] + ".L"
-    elif name.endswith("_L"):
-        return name[:-2] + "_R"
-    elif name.endswith("_R"):
-        return name[:-2] + "_L"
-    elif ".L." in name:
-        return name.replace(".L.", ".R.")
-    elif ".R." in name:
-        return name.replace(".R.", ".L.")
-    elif "_L_" in name:
-        return name.replace("_L_", "_R_")
-    elif "_R_" in name:
-        return name.replace("_R_", "_L_")
+    # Case-insensitive suffix detection so rigs named with lowercase
+    # suffixes (.l / _r) are mirrored correctly too; the original case of
+    # the flipped letter is preserved.
+    if not name:
+        return name
+    lower = name.lower()
+    for sep in ('.', '_'):
+        if lower.endswith(sep + 'l'):
+            return name[:-1] + ('R' if name[-1].isupper() else 'r')
+        if lower.endswith(sep + 'r'):
+            return name[:-1] + ('L' if name[-1].isupper() else 'l')
+    for sep in ('.', '_'):
+        token_l = sep + 'l' + sep
+        idx = lower.find(token_l)
+        if idx != -1:
+            ch = name[idx + 1]
+            return name[:idx + 1] + ('R' if ch.isupper() else 'r') + name[idx + 2:]
+        token_r = sep + 'r' + sep
+        idx = lower.find(token_r)
+        if idx != -1:
+            ch = name[idx + 1]
+            return name[:idx + 1] + ('L' if ch.isupper() else 'l') + name[idx + 2:]
     return name
 
 def segment_intersects_tri(p1, p2, v1, v2, v3):

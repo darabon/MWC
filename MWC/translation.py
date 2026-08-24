@@ -4,7 +4,7 @@ import bpy
 translations_dict = {
     "ru_RU": {
         # Context "*" matches any context if there is no context-specific translation
-        ("*", "Metaball Weight Container (MWC) 1.0"): "Metaball Weight Container (MWC) 1.0",
+        ("*", "Metaball Weight Container (MWC) 1.1"): "Metaball Weight Container (MWC) 1.1",
         
         # Panel headers
         ("*", "1. Generation & Cache Creation"): "1. Генерация и создание кэша",
@@ -72,6 +72,7 @@ translations_dict = {
         ("*", "Multiple Objects"): "Несколько объектов",
         ("*", "Sequential"): "Последовательный (SEQ)",
         ("*", "Thread Pool"): "Пул потоков (THREAD)",
+        ("*", "Process Pool"): "Пул процессов (PROCESS)",
         
         # Warning boxes / dialogs
         ("*", "Warning: Object contains self-intersecting geometry!"): "Внимание: Объект содержит самопересечения геометрии!",
@@ -99,6 +100,7 @@ translations_dict = {
         ("*", "Number of passes (iterations) of smoothing"): "Количество проходов (итераций) сглаживания",
         ("*", "Use geodesic distance along mesh edges (Dijkstra) instead of Euclidean to prevent weight leakage"): "Использовать геодезическое расстояние по ребрам сетки (алгоритм Дейкстры) вместо Евклидова для предотвращения протекания весов",
         ("*", "Choose multi-threading/multi-processing method for Dijkstra calculation"): "Выберите метод распараллеливания (потоки/процессы) для расчета Дейкстры",
+        ("*", "Parallel multi-process calculation (experimental, fastest on multi-core CPUs for heavy 100k+ vertex meshes)"): "Многопроцессорный расчет (экспериментально, быстрее всего на многоядерных ПК для тяжёлых мешей от 100k+ вершин)",
         ("*", "Adapt metaball radius in joints and center of bones using armature joint positions"): "Адаптировать радиус метаболов в суставах и центрах костей с помощью позиций суставов скелета",
         ("*", "Skeletal Armature object to retrieve joint positions from"): "Объект скелета (Armature) для считывания позиций суставов",
         ("*", "Radius multiplier near joint connections"): "Множитель радиуса в местах соединения костей (суставах)",
@@ -132,6 +134,20 @@ translations_dict = {
         ("*", "Cache successfully cleared."): "Кэш успешно очищен.",
         ("*", "Successfully spawned {} metaball objects in the viewport."): "Успешно отображено {} объектов метаболлов во вьюпорте.",
         ("*", "Viewport metaballs cleared."): "Метаболлы убраны из вьюпорта.",
+        ("*", "Engine: SciPy (C accelerated)"): "Движок: SciPy (C-ускорение)",
+        ("*", "Engine: NumPy fallback"): "Движок: NumPy (резервный)",
+
+        # Presets
+        ("*", "Save Preset"): "Сохранить пресет",
+        ("*", "Load Preset"): "Загрузить пресет",
+        ("*", "Name"): "Имя",
+        ("*", "Preset name cannot be empty."): "Имя пресета не может быть пустым.",
+        ("*", "Preset '{}' saved."): "Пресет '{}' сохранен.",
+        ("*", "Applied {} parameters from preset."): "Применено {} параметров из пресета.",
+        ("*", "No presets found."): "Пресеты не найдены.",
+        ("*", "Saved parameter preset to apply"): "Сохраненный пресет параметров для применения",
+        ("*", "Save all MWC generation and transfer parameters as a reusable preset"): "Сохранить все параметры генерации и переноса MWC как многоразовый пресет",
+        ("*", "Apply a saved MWC parameter preset to the current scene"): "Применить сохраненный пресет параметров MWC к текущей сцене",
     }
 }
 
