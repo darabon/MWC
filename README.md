@@ -3,7 +3,6 @@
 Written in Russian and English · [Полная документация на русском 🇷🇺](Full-doc.ru.md)
 
 ![Preview](images/Preview.png)
-![Preview](images/panel.png)
 
 ---
 
