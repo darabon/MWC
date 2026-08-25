@@ -1,6 +1,6 @@
 bl_info = {
     "name": "Metaball Weight Container (MWC) 1.1",
-    "author": "ARTEREKET and Gemini",
+    "author": "ARTEREKET",
     "version": (1, 1),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > MWC 1.1 Tab",
