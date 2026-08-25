@@ -1,7 +1,5 @@
 # Metaball Weight Container (MWC) 1.1
 
-Written in Russian and English · [Полная документация на русском 🇷🇺](Full-doc.ru.md)
-
 ![Preview](images/Preview.png)
 
 ---
